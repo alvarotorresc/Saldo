@@ -2,6 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Self-hosted fonts (no Google Fonts CDN — local-first) ─── */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/JetBrainsMono-Medium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/JetBrainsMono-SemiBold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Inter-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/Inter-Medium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/Inter-SemiBold.woff2') format('woff2');
+}
+
 :root {
   color-scheme: dark;
   --sab: env(safe-area-inset-bottom);
@@ -12,12 +56,13 @@ html,
 body,
 #root {
   height: 100%;
-  background: #0a0a0b;
-  color: #f4f4f5;
+  background: #08090a;
+  color: #e8e8ea;
   overflow: hidden;
 }
 
 body {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
   touch-action: manipulation;
@@ -45,7 +90,7 @@ select {
     font-variant-numeric: tabular-nums;
   }
   .hairline {
-    border-color: #1f1f23;
+    border-color: #1e2126;
   }
   .press {
     transition:
@@ -59,6 +104,25 @@ select {
   }
   .chip {
     @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-elevated text-text border border-border;
+  }
+  /* Terminal caret — blinking block cursor for mono inputs */
+  .caret-blink::after {
+    content: '▌';
+    display: inline-block;
+    margin-left: 2px;
+    color: theme('colors.accent');
+    animation: caret-blink 1s steps(2) infinite;
+  }
+}
+
+@keyframes caret-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
   }
 }
 
