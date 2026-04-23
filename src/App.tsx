@@ -4,6 +4,7 @@ import { seedIfEmpty } from '@/db/database';
 import { BottomNav, type Tab } from '@/ui/BottomNav';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { TransactionsPage } from '@/pages/TransactionsPage';
+import { LedgerPage } from '@/pages/LedgerPage';
 import { ImportPage } from '@/pages/ImportPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { MorePage, type MoreSection } from '@/pages/MorePage';
@@ -161,7 +162,9 @@ export default function App() {
                 }}
               />
             )}
-            {tab === 'transactions' && <TransactionsPage />}
+            {tab === 'transactions' && <LedgerPage />}
+            {/* TransactionsPage kept for regression fallback until F9 purge */}
+            {false && <TransactionsPage />}
             {tab === 'import' && <ImportPage />}
             {tab === 'more' &&
               (moreSection == null ? (
