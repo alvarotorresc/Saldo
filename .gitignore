@@ -1,0 +1,36 @@
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
+
+# Android build
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/
+android/local.properties
+
+# APKs
+*.apk
+
+# Logs y caches
+*.log
+.DS_Store
+
+# Tooling local
+.claude/
+.playwright-mcp/
+
+# Screenshots de desarrollo (no publicar)
+/saldo-*.png
+/test*.png
+/group-detail.png
+/logged-in-calendar.png
+/login-invalid-email.png
+/notifications-settings.png
+/prod-*.png
+/network-landing.txt
