@@ -29,7 +29,7 @@ export interface EncryptedPayload {
 
 export async function wrapMasterKey(master: CryptoKey, pinKey: CryptoKey): Promise<WrappedKey> {
   const subtle = requireSubtle();
-  const iv = randomBytes(IV_BYTES);
+  const iv = randomBytes(IV_BYTES) as unknown as Uint8Array<ArrayBuffer>;
   const wrapped = await subtle.wrapKey('raw', master, pinKey, { name: GCM, iv });
   return {
     wrapped: bufferToBase64(wrapped),
@@ -43,8 +43,8 @@ export async function unwrapMasterKey(
   pinKey: CryptoKey,
 ): Promise<CryptoKey> {
   const subtle = requireSubtle();
-  const wrapped = base64ToBytes(wrappedB64);
-  const iv = base64ToBytes(ivB64);
+  const wrapped = base64ToBytes(wrappedB64) as unknown as Uint8Array<ArrayBuffer>;
+  const iv = base64ToBytes(ivB64) as unknown as Uint8Array<ArrayBuffer>;
   return subtle.unwrapKey(
     'raw',
     wrapped,
@@ -58,7 +58,7 @@ export async function unwrapMasterKey(
 
 export async function sha256(data: Uint8Array): Promise<Uint8Array> {
   const subtle = requireSubtle();
-  const digest = await subtle.digest('SHA-256', data);
+  const digest = await subtle.digest('SHA-256', data as unknown as BufferSource);
   return new Uint8Array(digest);
 }
 
@@ -67,9 +67,9 @@ export async function encryptPayload(
   master: CryptoKey,
 ): Promise<EncryptedPayload> {
   const subtle = requireSubtle();
-  const iv = randomBytes(IV_BYTES);
+  const iv = randomBytes(IV_BYTES) as unknown as Uint8Array<ArrayBuffer>;
   const shaBytes = await sha256(payload);
-  const ct = await subtle.encrypt({ name: GCM, iv }, master, payload);
+  const ct = await subtle.encrypt({ name: GCM, iv }, master, payload as unknown as BufferSource);
   return {
     ct: bufferToBase64(ct),
     iv: bytesToBase64(iv),
@@ -84,11 +84,9 @@ export async function decryptPayload(
   expectedSha: string,
 ): Promise<Uint8Array> {
   const subtle = requireSubtle();
-  const plain = await subtle.decrypt(
-    { name: GCM, iv: base64ToBytes(iv) },
-    master,
-    base64ToBytes(ct),
-  );
+  const ivBytes = base64ToBytes(iv) as unknown as Uint8Array<ArrayBuffer>;
+  const ctBytes = base64ToBytes(ct) as unknown as Uint8Array<ArrayBuffer>;
+  const plain = await subtle.decrypt({ name: GCM, iv: ivBytes }, master, ctBytes);
   const plainBytes = new Uint8Array(plain);
   const actualSha = bytesToBase64(await sha256(plainBytes));
   if (actualSha !== expectedSha) {

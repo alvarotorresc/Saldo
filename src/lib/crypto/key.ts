@@ -38,7 +38,7 @@ export async function derivePinKey(pin: string, salt: Uint8Array): Promise<Crypt
   return subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt as unknown as BufferSource,
       iterations: PBKDF2_ITERATIONS,
       hash: PBKDF2_HASH,
     },
