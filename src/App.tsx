@@ -14,6 +14,9 @@ import { ChartsPage } from '@/pages/ChartsPage';
 import { WealthPage } from '@/pages/WealthPage';
 import { CategoriesPage } from '@/pages/CategoriesPage';
 import { ForecastPage } from '@/pages/ForecastPage';
+import { useLock, installAutoLock } from '@/stores/lock';
+import { OnboardingFlow } from '@/app/OnboardingFlow';
+import { LockPage } from '@/pages/onboarding/LockPage';
 
 interface ErrorBoundaryState {
   error: Error | null;
@@ -68,24 +71,67 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
   }
 }
 
+function BootSplash() {
+  return (
+    <div className="h-full grid place-items-center bg-bg">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-10 h-10 rounded-sm border border-border bg-surface animate-pulse" />
+        <span className="font-mono text-mono9 text-dim tracking-widest">$ init saldo@local…</span>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('home');
   const [moreSection, setMoreSection] = useState<MoreSection | null>(null);
-  const [ready, setReady] = useState(false);
+  const [seeded, setSeeded] = useState(false);
+  const status = useLock((s) => s.status);
+  const boot = useLock((s) => s.boot);
 
   useEffect(() => {
+    boot().catch((e) => console.error('lock boot failed', e));
+  }, [boot]);
+
+  useEffect(() => {
+    if (status !== 'unlocked') return;
     seedIfEmpty()
       .catch((e) => console.error('seed failed', e))
-      .finally(() => setReady(true));
+      .finally(() => setSeeded(true));
+  }, [status]);
+
+  useEffect(() => {
+    const cleanup = installAutoLock();
+    return cleanup;
   }, []);
 
-  if (!ready) {
+  if (status === 'booting') return <BootSplash />;
+
+  if (status === 'welcome') {
     return (
-      <div className="h-full grid place-items-center">
-        <div className="w-10 h-10 rounded-2xl border border-border bg-surface animate-pulse" />
+      <div className="h-full flex flex-col bg-bg text-text">
+        <div className="h-full flex flex-col w-full max-w-[480px] md:max-w-[720px] mx-auto md:border-x md:border-border">
+          <ErrorBoundary>
+            <OnboardingFlow onDone={() => undefined} />
+          </ErrorBoundary>
+        </div>
       </div>
     );
   }
+
+  if (status === 'locked') {
+    return (
+      <div className="h-full flex flex-col bg-bg text-text">
+        <div className="h-full flex flex-col w-full max-w-[480px] md:max-w-[720px] mx-auto md:border-x md:border-border">
+          <ErrorBoundary>
+            <LockPage />
+          </ErrorBoundary>
+        </div>
+      </div>
+    );
+  }
+
+  if (!seeded) return <BootSplash />;
 
   function openMore(section: MoreSection) {
     setMoreSection(section);
