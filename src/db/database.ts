@@ -12,6 +12,7 @@ import type {
   Rule,
   Subscription,
   AppMeta,
+  TxTombstone,
 } from '@/types';
 
 class SaldoDB extends Dexie {
@@ -27,6 +28,7 @@ class SaldoDB extends Dexie {
   loans!: Table<Loan, number>;
   balances!: Table<AccountBalance, number>;
   meta!: Table<AppMeta, string>;
+  txTombstones!: Table<TxTombstone, number>;
 
   constructor() {
     super('saldo');
@@ -130,6 +132,23 @@ class SaldoDB extends Dexie {
           }
         }
       });
+    // v6 — tabla txTombstones para soft-delete reproducible en round-trips.
+    this.version(6).stores({
+      accounts: '++id, name, bank, archived',
+      categoryGroups: '++id, name, kind, order',
+      categories: '++id, name, kind, groupId, builtin',
+      transactions:
+        '++id, accountId, date, month, kind, categoryId, importHash, reimbursementFor, [accountId+importHash]',
+      budgets: '++id, month, categoryId, [month+categoryId]',
+      goals: '++id, name, deadline',
+      recurring: '++id, signature, kind',
+      rules: '++id, priority, categoryId, enabled',
+      subscriptions: '++id, name, cadence, nextCharge, active',
+      loans: '++id, name, startDate',
+      balances: '++id, accountId, month, [accountId+month]',
+      meta: '&key',
+      txTombstones: '++id, &txHash, deletedAt',
+    });
   }
 }
 

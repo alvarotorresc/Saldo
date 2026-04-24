@@ -9,10 +9,13 @@ import type {
   Rule,
   Subscription,
   Transaction,
+  TxTombstone,
 } from '@/types';
 
+export type SaldoSnapshotVersion = 1 | 2;
+
 export interface SaldoSnapshot {
-  version: 1;
+  version: SaldoSnapshotVersion;
   exportedAt: string; // ISO
   accounts: Account[];
   categoryGroups: CategoryGroup[];
@@ -24,6 +27,7 @@ export interface SaldoSnapshot {
   subscriptions: Subscription[];
   loans: Loan[];
   balances: AccountBalance[];
+  txTombstones?: TxTombstone[]; // v2+
 }
 
 /** Pure: produces the canonical JSON string for a .saldo/.json export. */
@@ -44,7 +48,9 @@ export function parseSnapshot(raw: string): SaldoSnapshot {
   }
   if (!data || typeof data !== 'object') throw new Error('Invalid .saldo payload: not an object');
   const d = data as Partial<SaldoSnapshot>;
-  if (d.version !== 1) throw new Error(`Unsupported .saldo version: ${String(d.version)}`);
+  if (d.version !== 1 && d.version !== 2) {
+    throw new Error(`Unsupported .saldo version: ${String(d.version)}`);
+  }
   for (const key of [
     'accounts',
     'categoryGroups',
@@ -61,8 +67,10 @@ export function parseSnapshot(raw: string): SaldoSnapshot {
       throw new Error(`Invalid .saldo payload: "${key}" must be an array`);
     }
   }
+  const version: SaldoSnapshotVersion = d.version;
+  const tombstones = Array.isArray(d.txTombstones) ? d.txTombstones : [];
   return {
-    version: 1,
+    version,
     exportedAt: typeof d.exportedAt === 'string' ? d.exportedAt : new Date().toISOString(),
     accounts: d.accounts!,
     categoryGroups: d.categoryGroups!,
@@ -74,5 +82,6 @@ export function parseSnapshot(raw: string): SaldoSnapshot {
     subscriptions: d.subscriptions!,
     loans: d.loans!,
     balances: d.balances!,
+    txTombstones: tombstones,
   };
 }

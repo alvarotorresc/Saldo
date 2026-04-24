@@ -137,3 +137,9 @@ export interface AppMeta {
   key: string;
   value: string;
 }
+
+export interface TxTombstone {
+  id?: number;
+  txHash: string; // canonical SHA-256 of the deleted tx
+  deletedAt: number; // epoch ms
+}

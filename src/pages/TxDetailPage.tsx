@@ -108,7 +108,13 @@ export function TxDetailPage({ txId, onBack, onDeleted }: Props) {
   async function remove() {
     if (!tx?.id) return;
     if (typeof window !== 'undefined' && !window.confirm('¿Borrar este movimiento?')) return;
-    await db.transactions.delete(tx.id);
+    const fingerprint = await txHash(tx);
+    await db.transaction('rw', db.transactions, db.txTombstones, async () => {
+      await db.txTombstones
+        .put({ txHash: fingerprint, deletedAt: Date.now() })
+        .catch(() => undefined);
+      if (tx.id != null) await db.transactions.delete(tx.id);
+    });
     if (onDeleted) onDeleted();
     else onBack();
   }

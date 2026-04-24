@@ -19,6 +19,7 @@ import type { Category, Transaction } from '@/types';
 import { filterTx, groupTxByDate, summarize } from './LedgerPage.helpers';
 import type { LedgerKindFilter } from './LedgerPage.helpers';
 import { matchesFilter, useLedgerFilter } from '@/stores/ledgerFilter';
+import { reapplyMonth } from '@/lib/rules';
 
 // ─── Context menu ─────────────────────────────────────────────────────────────
 
@@ -267,6 +268,44 @@ export function LedgerPage({ onOpenTx, onOpenFilter, onNewTx }: LedgerPageProps 
     return base.filter((t) => matchesFilter(t, filterState, month));
   }, [all, query, kindFilter, filterState, month]);
 
+  // Pull-to-refresh state: track pointer drag while scrollTop === 0 and, when
+  // the user drags down ≥60px, invoke reapplyMonth(month).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const ptrStartY = useRef<number | null>(null);
+  const [ptrPull, setPtrPull] = useState(0);
+  const [ptrStatus, setPtrStatus] = useState<'idle' | 'refreshing' | 'done'>('idle');
+  const [ptrUpdated, setPtrUpdated] = useState(0);
+
+  function onPtrDown(e: React.PointerEvent<HTMLDivElement>) {
+    const el = scrollRef.current;
+    if (!el || el.scrollTop > 0) return;
+    ptrStartY.current = e.clientY;
+  }
+  function onPtrMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (ptrStartY.current == null) return;
+    const delta = e.clientY - ptrStartY.current;
+    if (delta <= 0) {
+      setPtrPull(0);
+      return;
+    }
+    setPtrPull(Math.min(120, delta));
+  }
+  async function onPtrUp() {
+    const pull = ptrPull;
+    ptrStartY.current = null;
+    setPtrPull(0);
+    if (pull < 60 || ptrStatus === 'refreshing') return;
+    setPtrStatus('refreshing');
+    try {
+      const n = await reapplyMonth(month);
+      setPtrUpdated(n);
+      setPtrStatus('done');
+      setTimeout(() => setPtrStatus('idle'), 1500);
+    } catch {
+      setPtrStatus('idle');
+    }
+  }
+
   const groups = useMemo(() => groupTxByDate(filtered), [filtered]);
   const summary = useMemo(() => summarize(filtered), [filtered]);
 
@@ -392,8 +431,32 @@ export function LedgerPage({ onOpenTx, onOpenFilter, onNewTx }: LedgerPageProps 
         </div>
       )}
 
+      {/* Pull-to-refresh indicator */}
+      {(ptrPull > 0 || ptrStatus !== 'idle') && (
+        <div
+          className="flex items-center justify-center py-2 font-mono text-mono9 text-dim tracking-widest uppercase border-b border-border"
+          data-testid="ptr-indicator"
+          style={{ height: Math.max(0, Math.min(ptrPull, 60)) + 20 }}
+        >
+          {ptrStatus === 'refreshing'
+            ? 'REAPPLY_RULES…'
+            : ptrStatus === 'done'
+              ? `${ptrUpdated} TX ACTUALIZADAS`
+              : ptrPull >= 60
+                ? 'RELEASE → REAPPLY'
+                : 'PULL ↓ REAPPLY'}
+        </div>
+      )}
+
       {/* Transaction list */}
-      <div className="scroll-area flex-1">
+      <div
+        ref={scrollRef}
+        onPointerDown={onPtrDown}
+        onPointerMove={onPtrMove}
+        onPointerUp={onPtrUp}
+        onPointerCancel={onPtrUp}
+        className="scroll-area flex-1"
+      >
         {isEmpty ? (
           /* Empty state — terminal ASCII style */
           <div className="flex flex-col items-center justify-center h-full py-16 px-4">
