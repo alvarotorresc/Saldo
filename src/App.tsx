@@ -19,6 +19,8 @@ import { LoansPage } from '@/pages/LoansPage';
 import { ChartsPage } from '@/pages/ChartsPage';
 import { WealthPage } from '@/pages/WealthPage';
 import { NetWorthPage } from '@/pages/NetWorthPage';
+import { ExportPage } from '@/pages/ExportPage';
+import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { CategoriesPage } from '@/pages/CategoriesPage';
 import { ForecastPage } from '@/pages/ForecastPage';
 import { BudgetsPage } from '@/pages/BudgetsPage';
@@ -219,6 +221,22 @@ export default function App() {
         setMoreSection('rules');
       },
     },
+    {
+      id: 'go-analytics',
+      label: 'Analytics',
+      onRun: () => {
+        setTab('more');
+        setMoreSection('analytics');
+      },
+    },
+    {
+      id: 'export',
+      label: 'Export snapshot',
+      onRun: () => {
+        setTab('more');
+        setMoreSection('export');
+      },
+    },
     { id: 'settings', label: 'Settings', onRun: () => setTab('settings') },
     { id: 'lock', label: 'Lock now', onRun: () => useLock.getState().lock() },
   ];
@@ -290,6 +308,10 @@ export default function App() {
                     <BudgetsPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'rules' ? (
                     <RulesPage onBack={() => setMoreSection(null)} />
+                  ) : moreSection === 'analytics' ? (
+                    <AnalyticsPage onBack={() => setMoreSection(null)} />
+                  ) : moreSection === 'export' ? (
+                    <ExportPage onBack={() => setMoreSection(null)} />
                   ) : null)}
                 {tab === 'settings' && <SettingsPage />}
               </>
@@ -312,7 +334,10 @@ export default function App() {
         onNewIncome={() => setNewTxOpen(true)}
         onNewTransfer={() => setNewTxOpen(true)}
         onImport={() => setTab('import')}
-        onExport={() => setTab('settings')}
+        onExport={() => {
+          setTab('more');
+          setMoreSection('export');
+        }}
         onNewGoal={() => {
           setTab('more');
           setMoreSection('goals');

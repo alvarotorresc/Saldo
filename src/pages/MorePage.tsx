@@ -11,7 +11,9 @@ export type MoreSection =
   | 'categories'
   | 'forecast'
   | 'budgets'
-  | 'rules';
+  | 'rules'
+  | 'export'
+  | 'analytics';
 
 interface Props {
   onOpen: (section: MoreSection) => void;
@@ -88,6 +90,20 @@ const ENTRIES: Entry[] = [
     subtitle: 'Auto-categorización',
     icon: 'flow',
     color: '#60A5FA',
+  },
+  {
+    key: 'analytics',
+    title: 'Analytics',
+    subtitle: '12M YoY + merchants',
+    icon: 'pie',
+    color: '#34D399',
+  },
+  {
+    key: 'export',
+    title: 'Export',
+    subtitle: 'Guarda snapshot .saldo',
+    icon: 'download',
+    color: '#A78BFA',
   },
 ];
 
