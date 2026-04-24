@@ -4,7 +4,7 @@
  * (goalProgress). CRUD vía sheet.
  */
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { db } from '@/db/database';
 import { formatMoney } from '@/lib/format';
 import { goalProgress } from '@/lib/goals';
@@ -154,7 +154,7 @@ function GoalEditor({
   const [deadline, setDeadline] = useState(goal?.deadline ?? '');
   const [color, setColor] = useState(goal?.color ?? PALETTE[0]);
 
-  useMemo(() => {
+  useEffect(() => {
     setName(goal?.name ?? '');
     setTarget(String(goal?.target ?? ''));
     setSaved(String(goal?.saved ?? '0'));

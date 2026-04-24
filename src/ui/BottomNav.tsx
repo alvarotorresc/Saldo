@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Icon, type IconName } from './Icon';
 
 export type Tab = 'home' | 'transactions' | 'import' | 'more' | 'settings';
@@ -18,7 +19,7 @@ const TABS: { key: Tab; label: string; icon: IconName }[] = [
 ];
 
 export function BottomNav({ value, onChange, onFabLongPress, onCmdPalette }: Props) {
-  let pressTimer: ReturnType<typeof setTimeout> | null = null;
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   return (
     <nav
       className="shrink-0 border-t border-border bg-bg/90 backdrop-blur relative"
@@ -44,23 +45,23 @@ export function BottomNav({ value, onChange, onFabLongPress, onCmdPalette }: Pro
               key={t.key}
               onPointerDown={() => {
                 if (isFab) {
-                  pressTimer = setTimeout(() => {
-                    pressTimer = null;
+                  pressTimer.current = setTimeout(() => {
+                    pressTimer.current = null;
                     onFabLongPress?.();
                   }, 500);
                 }
               }}
               onPointerUp={() => {
-                if (pressTimer) {
-                  clearTimeout(pressTimer);
-                  pressTimer = null;
+                if (pressTimer.current) {
+                  clearTimeout(pressTimer.current);
+                  pressTimer.current = null;
                   onChange(t.key);
                 }
               }}
               onPointerCancel={() => {
-                if (pressTimer) {
-                  clearTimeout(pressTimer);
-                  pressTimer = null;
+                if (pressTimer.current) {
+                  clearTimeout(pressTimer.current);
+                  pressTimer.current = null;
                 }
               }}
               onClick={() => {

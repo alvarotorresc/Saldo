@@ -4,7 +4,7 @@
  * próxima cuota usando amortize() existente.
  */
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { db } from '@/db/database';
 import { formatMoney } from '@/lib/format';
 import { amortize, monthsElapsed } from '@/lib/loan';
@@ -168,7 +168,7 @@ function LoanEditor({
   const [extra, setExtra] = useState(String(loan?.extraPayment ?? '0'));
   const [color, setColor] = useState(loan?.color ?? PALETTE[0]);
 
-  useMemo(() => {
+  useEffect(() => {
     setName(loan?.name ?? '');
     setPrincipal(String(loan?.principal ?? ''));
     setInterestRate(String(loan?.interestRate ?? '0'));

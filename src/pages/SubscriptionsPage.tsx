@@ -3,7 +3,7 @@
  * listas Próximos (30d) y Anuales. CRUD completo con color-bar vertical.
  */
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { db } from '@/db/database';
 import { formatMoney } from '@/lib/format';
 import { monthlyCostForCadence, daysUntil, nextDateFromCadence } from '@/lib/loan';
@@ -196,7 +196,7 @@ function SubEditor({
   );
   const [color, setColor] = useState(subscription?.color ?? PALETTE[0]);
 
-  useMemo(() => {
+  useEffect(() => {
     setName(subscription?.name ?? '');
     setAmount(String(subscription?.amount ?? ''));
     setCadence(subscription?.cadence ?? 'monthly');

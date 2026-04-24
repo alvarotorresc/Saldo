@@ -3,7 +3,7 @@
  * statements, exposes hit counter, toggle, inline edit and "Test rule" preview.
  */
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { db } from '@/db/database';
 import { previewMatches } from '@/lib/rules';
 import { TopBarV2 } from '@/ui/TopBarV2';
@@ -178,7 +178,7 @@ function RuleSheet({
   const [categoryId, setCategoryId] = useState<number | undefined>(rule?.categoryId);
 
   // Resync when the target rule changes.
-  useMemo(() => {
+  useEffect(() => {
     setPattern(rule?.pattern ?? '');
     setPriority(String(rule?.priority ?? 5));
     setCategoryId(rule?.categoryId);

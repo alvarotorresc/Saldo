@@ -5,7 +5,7 @@
  * categorías via sheets.
  */
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { db } from '@/db/database';
 import { expensesByGroup, txByMonth } from '@/db/queries';
 import { formatMoney } from '@/lib/format';
@@ -345,7 +345,7 @@ function GroupEditorSheet({
   const [color, setColor] = useState(group?.color ?? PALETTE[0]);
   const [kind, setKind] = useState<'expense' | 'income'>(group?.kind ?? 'expense');
 
-  useMemo(() => {
+  useEffect(() => {
     setName(group?.name ?? '');
     setColor(group?.color ?? PALETTE[0]);
     setKind(group?.kind ?? 'expense');
@@ -446,7 +446,7 @@ function CategoryEditorSheet({
   const [kind, setKind] = useState<'expense' | 'income'>(category?.kind ?? 'expense');
   const [groupId, setGroupId] = useState<number | undefined>(category?.groupId ?? defaultGroupId);
 
-  useMemo(() => {
+  useEffect(() => {
     setName(category?.name ?? '');
     setColor(category?.color ?? PALETTE[0]);
     setKind(category?.kind ?? 'expense');
