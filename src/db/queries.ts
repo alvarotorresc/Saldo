@@ -102,6 +102,97 @@ export async function dailySpend(month: string): Promise<number[]> {
   return dailySpendFromRows(rows, month);
 }
 
+/**
+ * Pure helper: builds a daily-expense series spanning `days` days ending at
+ * `endDateISO` (yyyy-mm-dd). Index 0 is the oldest day. Income and transfers
+ * are ignored; split expenses use `personalAmount`.
+ */
+export function dailySpendSeriesFromRows(
+  rows: readonly Transaction[],
+  endDateISO: string,
+  days: number,
+): number[] {
+  const n = Math.max(1, Math.floor(days));
+  const out = new Array<number>(n).fill(0);
+  const endMs = new Date(endDateISO + 'T00:00:00Z').getTime();
+  if (Number.isNaN(endMs)) return out;
+  const startMs = endMs - (n - 1) * 86400000;
+  for (const t of rows) {
+    if (t.kind !== 'expense') continue;
+    const tMs = new Date(t.date + 'T00:00:00Z').getTime();
+    if (Number.isNaN(tMs)) continue;
+    if (tMs < startMs || tMs > endMs) continue;
+    const idx = Math.round((tMs - startMs) / 86400000);
+    if (idx < 0 || idx >= n) continue;
+    out[idx] += effectiveAmount(t);
+  }
+  return out;
+}
+
+export async function dailySpendSeries(endDateISO: string, days: number): Promise<number[]> {
+  const n = Math.max(1, Math.floor(days));
+  const endMs = new Date(endDateISO + 'T00:00:00Z').getTime();
+  if (Number.isNaN(endMs)) return new Array<number>(n).fill(0);
+  const startMs = endMs - (n - 1) * 86400000;
+  const startISO = new Date(startMs).toISOString().slice(0, 10);
+  const rows = await db.transactions
+    .where('date')
+    .between(startISO, endDateISO, true, true)
+    .toArray();
+  return dailySpendSeriesFromRows(rows, endDateISO, n);
+}
+
+/**
+ * Pure helper: aggregates rows into 12 monthly buckets (oldest first) ending at
+ * the given month. Each bucket holds income/expense totals, respecting
+ * reimbursements and personal amounts.
+ */
+export interface InOutMonth {
+  month: string;
+  income: number;
+  expense: number;
+}
+
+export function monthlyInOutFromRows(
+  rows: readonly Transaction[],
+  endMonth: string,
+  months = 12,
+): InOutMonth[] {
+  const [y, m] = endMonth.split('-').map(Number);
+  if (!y || !m) return [];
+  const series: InOutMonth[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(y, m - 1 - i, 1);
+    const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    series.push({ month, income: 0, expense: 0 });
+  }
+  const index = new Map<string, InOutMonth>();
+  series.forEach((b) => index.set(b.month, b));
+  for (const t of rows) {
+    const bucket = index.get(t.month);
+    if (!bucket) continue;
+    if (t.kind === 'income') {
+      if (t.reimbursementFor) continue;
+      bucket.income += t.amount;
+    } else if (t.kind === 'expense') {
+      bucket.expense += effectiveAmount(t);
+    }
+  }
+  return series;
+}
+
+export async function monthlyInOut(endMonth: string, months = 12): Promise<InOutMonth[]> {
+  const [y, m] = endMonth.split('-').map(Number);
+  if (!y || !m) return [];
+  const startDate = new Date(y, m - 1 - (months - 1), 1);
+  const startMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+  const rows = await db.transactions
+    .where('month')
+    .between(startMonth, endMonth, true, true)
+    .toArray();
+  return monthlyInOutFromRows(rows, endMonth, months);
+}
+
 export async function monthlyTotals(
   months: string[],
 ): Promise<Map<string, { income: number; expense: number; net: number }>> {
