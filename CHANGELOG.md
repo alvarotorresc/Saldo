@@ -96,12 +96,26 @@ reglas con toggle y analytics.
 
 - Schema v4 → v5 (rules.enabled) → v6 (txTombstones). Las DBs existentes se
   migran automáticamente al abrir la app.
-- Export `.saldo` ahora es v2 (incluye tombstones). El parser acepta v1
-  (pre-tombstone → array vacío).
+- PIN mínimo: 4 → **6 dígitos**. Usuarios con PIN antiguo de 4 o 5 dígitos
+  mantienen el PIN actual hasta que lo cambien voluntariamente; el nuevo
+  mínimo aplica solo a `setupPin` y `changePin`.
+- Export `.saldo` ahora es v2 (incluye tombstones y `recurring`). El parser
+  acepta v1 (pre-tombstone → array vacío).
 - Se eliminan pantallas/archivos legacy reemplazados: WealthPage, ChartsPage,
   ForecastPage, TransactionsPage, DashboardPage.legacy, TopBar v1, Card,
   Button, EmptyState, SegmentedControl, MonthSwitcher, Input, List, Money,
   BottomNavV2, BarChart, LineChart, TxForm.
+
+### Rollback schema
+
+Si se necesita revertir v0.2.0 y volver al schema v5, Dexie no puede hacer
+downgrade automático: hay que borrar y recrear la BD local. Pasos sugeridos:
+
+1. Export `.saldo` con la app actual (v0.2.0).
+2. Desinstalar la app o borrar IndexedDB manualmente (DevTools → Application
+   → IndexedDB → `saldo` → Delete).
+3. Instalar versión v0.1.x.
+4. Import CSV / manual de los datos (los tombstones se pierden; resto OK).
 
 ### Deuda resuelta respecto al plan original
 

@@ -46,7 +46,6 @@ export function SubscriptionsPage({ onBack }: Props) {
       const d = daysUntil(s.nextCharge);
       if (s.cadence === 'yearly') annuals.push(s);
       else if (d >= 0 && d <= 30) upcoming.push(s);
-      else upcoming.push(s);
     }
     upcoming.sort((a, b) => daysUntil(a.nextCharge) - daysUntil(b.nextCharge));
     annuals.sort((a, b) => daysUntil(a.nextCharge) - daysUntil(b.nextCharge));

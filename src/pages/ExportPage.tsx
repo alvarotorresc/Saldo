@@ -5,7 +5,8 @@
  */
 import { useState } from 'react';
 import { db } from '@/db/database';
-import { serializeSnapshot, type SaldoSnapshot } from '@/lib/saldoFile';
+import { buildVaultSnapshot } from '@/lib/crypto';
+import { serializeSnapshot } from '@/lib/saldoFile';
 import { transactionsToCsv, transactionsToOfx } from '@/lib/exportFormats';
 import { TopBarV2 } from '@/ui/TopBarV2';
 import { Btn, Section } from '@/ui/primitives';
@@ -31,24 +32,6 @@ const FORMATS: { key: Format; label: string; desc: string; ext: string; recommen
     { key: 'pdf', label: '.pdf', desc: 'Informe imprimible · resumen mensual', ext: 'pdf' },
   ];
 
-async function buildSnapshot(): Promise<SaldoSnapshot> {
-  return {
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    accounts: await db.accounts.toArray(),
-    categoryGroups: await db.categoryGroups.toArray(),
-    categories: await db.categories.toArray(),
-    transactions: await db.transactions.toArray(),
-    budgets: await db.budgets.toArray(),
-    goals: await db.goals.toArray(),
-    rules: await db.rules.toArray(),
-    subscriptions: await db.subscriptions.toArray(),
-    loans: await db.loans.toArray(),
-    balances: await db.balances.toArray(),
-    txTombstones: await db.txTombstones.toArray(),
-  };
-}
-
 export function ExportPage({ onBack }: Props) {
   const [format, setFormat] = useState<Format>('saldo');
   const [status, setStatus] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
@@ -63,7 +46,7 @@ export function ExportPage({ onBack }: Props) {
       let blob: Blob;
 
       if (format === 'saldo' || format === 'json') {
-        const payload = serializeSnapshot(await buildSnapshot());
+        const payload = serializeSnapshot(await buildVaultSnapshot());
         blob = new Blob([payload], { type: 'application/json' });
       } else if (format === 'csv') {
         const [txs, cats] = await Promise.all([

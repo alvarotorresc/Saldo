@@ -88,9 +88,15 @@ export default function App() {
   const [seeded, setSeeded] = useState(false);
   const [txDetailId, setTxDetailId] = useState<number | null>(null);
   const [newTxOpen, setNewTxOpen] = useState(false);
+  const [newTxKind, setNewTxKind] = useState<'expense' | 'income' | 'transfer'>('expense');
   const [filterOpen, setFilterOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+
+  function openNewTx(kind: 'expense' | 'income' | 'transfer' = 'expense') {
+    setNewTxKind(kind);
+    setNewTxOpen(true);
+  }
   const status = useLock((s) => s.status);
   const boot = useLock((s) => s.boot);
 
@@ -148,9 +154,9 @@ export default function App() {
   }
 
   const commands: Command[] = [
-    { id: 'new-expense', label: 'New expense', hint: '⌘E', onRun: () => setNewTxOpen(true) },
-    { id: 'new-income', label: 'New income', hint: '⌘I', onRun: () => setNewTxOpen(true) },
-    { id: 'new-transfer', label: 'New transfer', onRun: () => setNewTxOpen(true) },
+    { id: 'new-expense', label: 'New expense', hint: '⌘E', onRun: () => openNewTx('expense') },
+    { id: 'new-income', label: 'New income', hint: '⌘I', onRun: () => openNewTx('income') },
+    { id: 'new-transfer', label: 'New transfer', onRun: () => openNewTx('transfer') },
     { id: 'import-csv', label: 'Import CSV', onRun: () => setTab('import') },
     { id: 'go-ledger', label: 'Go to ledger', hint: '⌘L', onRun: () => setTab('transactions') },
     { id: 'go-dashboard', label: 'Go to dashboard', hint: '⌘D', onRun: () => setTab('home') },
@@ -243,6 +249,7 @@ export default function App() {
               />
             ) : newTxOpen ? (
               <NewTxPage
+                initialKind={newTxKind}
                 onBack={() => setNewTxOpen(false)}
                 onCommitted={(id) => {
                   setNewTxOpen(false);
@@ -270,7 +277,7 @@ export default function App() {
                   <LedgerPage
                     onOpenTx={(id) => setTxDetailId(id)}
                     onOpenFilter={() => setFilterOpen(true)}
-                    onNewTx={() => setNewTxOpen(true)}
+                    onNewTx={() => openNewTx('expense')}
                   />
                 )}
                 {tab === 'import' && <ImportPage />}
@@ -313,9 +320,9 @@ export default function App() {
       <QuickActionsSheet
         open={quickOpen}
         onClose={() => setQuickOpen(false)}
-        onNewExpense={() => setNewTxOpen(true)}
-        onNewIncome={() => setNewTxOpen(true)}
-        onNewTransfer={() => setNewTxOpen(true)}
+        onNewExpense={() => openNewTx('expense')}
+        onNewIncome={() => openNewTx('income')}
+        onNewTransfer={() => openNewTx('transfer')}
         onImport={() => setTab('import')}
         onExport={() => {
           setTab('more');
