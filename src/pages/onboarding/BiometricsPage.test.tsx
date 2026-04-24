@@ -1,43 +1,87 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BiometricsPage } from './BiometricsPage';
 
-// getBiometryStatus always returns { isAvailable: false } in v0.2, but mock
-// to avoid any I/O side effects and keep tests synchronous.
+const getBiometryStatusMock = vi.fn();
+const enableBiometryMock = vi.fn();
+
 vi.mock('@/lib/crypto', () => ({
-  getBiometryStatus: vi.fn().mockResolvedValue({ isAvailable: false, reason: 'deferred-v03' }),
+  getBiometryStatus: (...args: unknown[]) => getBiometryStatusMock(...args),
+  enableBiometry: (...args: unknown[]) => enableBiometryMock(...args),
 }));
 
+beforeEach(() => {
+  getBiometryStatusMock.mockReset();
+  enableBiometryMock.mockReset();
+});
+
 describe('BiometricsPage', () => {
-  it('renders page title', () => {
+  it('renders the page title', () => {
+    getBiometryStatusMock.mockResolvedValue({
+      isAvailable: false,
+      hasSavedPin: false,
+      reason: 'not-supported',
+    });
     render(<BiometricsPage onContinue={vi.fn()} />);
-    expect(screen.getByText('Autenticacion biometrica')).toBeTruthy();
+    expect(screen.getByText(/Autenticación biométrica/i)).toBeInTheDocument();
   });
 
-  it('shows unavailable banner after status resolves', async () => {
+  it('shows NOT AVAILABLE badge + reason label when unavailable', async () => {
+    getBiometryStatusMock.mockResolvedValue({
+      isAvailable: false,
+      hasSavedPin: false,
+      reason: 'not-supported',
+    });
     render(<BiometricsPage onContinue={vi.fn()} />);
     await waitFor(() => {
-      expect(screen.getByRole('status', { name: 'Estado biometria' })).toBeTruthy();
+      expect(screen.getByTestId('biometry-status')).toBeInTheDocument();
     });
-    expect(screen.getByText(/Biometria no disponible en v0\.2/)).toBeTruthy();
-    expect(screen.getByText('NOT AVAILABLE')).toBeTruthy();
+    expect(screen.getByText('NOT AVAILABLE')).toBeInTheDocument();
+    expect(screen.getByText(/soporte biométrico/i)).toBeInTheDocument();
   });
 
-  it('always shows CONTINUAR button', () => {
-    render(<BiometricsPage onContinue={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /CONTINUAR/i })).toBeTruthy();
+  it('shows ACTIVAR_BIOMETRIA when plugin is available and no PIN is saved yet', async () => {
+    getBiometryStatusMock.mockResolvedValue({
+      isAvailable: true,
+      hasSavedPin: false,
+      reason: 'not-enabled',
+      kind: 'fingerprint',
+    });
+    render(<BiometricsPage onContinue={vi.fn()} pin="123456" />);
+    await waitFor(() => {
+      expect(screen.getByTestId('biometry-enable')).toBeInTheDocument();
+    });
   });
 
-  it('calls onContinue when button is clicked', () => {
+  it('calls enableBiometry with the injected PIN and advances on success', async () => {
+    getBiometryStatusMock.mockResolvedValue({
+      isAvailable: true,
+      hasSavedPin: false,
+      reason: 'not-enabled',
+    });
+    enableBiometryMock.mockResolvedValue(true);
+    const onContinue = vi.fn();
+    render(<BiometricsPage onContinue={onContinue} pin="123456" />);
+    await waitFor(() => {
+      expect(screen.getByTestId('biometry-enable')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('biometry-enable'));
+    await waitFor(() => expect(enableBiometryMock).toHaveBeenCalledWith('123456'));
+    await waitFor(() => expect(onContinue).toHaveBeenCalled());
+  });
+
+  it('offers a SKIP button that triggers onContinue without enabling biometry', async () => {
+    getBiometryStatusMock.mockResolvedValue({
+      isAvailable: false,
+      hasSavedPin: false,
+      reason: 'not-supported',
+    });
     const onContinue = vi.fn();
     render(<BiometricsPage onContinue={onContinue} />);
-    fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId('biometry-status')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /SALTAR|CONTINUAR/i }));
     expect(onContinue).toHaveBeenCalledOnce();
-  });
-
-  it('does not show activate fingerprint button', () => {
-    render(<BiometricsPage onContinue={vi.fn()} />);
-    expect(screen.queryByText(/Activar/i)).toBeNull();
-    expect(screen.queryByText(/huella/i)).toBeNull();
   });
 });

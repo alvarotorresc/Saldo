@@ -1,29 +1,116 @@
-// Biometric auth stub. The real plugin (@capacitor-community/biometric-auth)
-// no existe en npm y @capgo/capacitor-native-biometric@7.x tiene un CVE de
-// authentication bypass (GHSA-vx5f-vmr6-32wf). v8 es seguro pero requiere
-// Capacitor core 8 — fuera de scope del sprint v0.2.
-//
-// En consecuencia, v0.2 ships PIN-only. Esta interfaz queda como contrato
-// futuro para v0.3 cuando se upgrade Capacitor. La pantalla de bio en el
-// onboarding lee isAvailable() y salta el step si false.
+/**
+ * Biometric auth backed by @capgo/capacitor-native-biometric v8 (post-CVE).
+ *
+ * Flow:
+ *   enableBiometry(pin)   → verifyIdentity() then setCredentials() storing the
+ *                           PIN in the system keychain/keystore.
+ *   authenticateBiometry  → verifyIdentity() + getCredentials() returns the
+ *                           stored PIN, which the lock store feeds to
+ *                           unlock(pin) exactly as if the user typed it.
+ *   disableBiometry()     → deleteCredentials().
+ *   getBiometryStatus()   → isAvailable() + isCredentialsSaved().
+ *
+ * On the web (no Capacitor native bridge) `isAvailable` rejects; we catch and
+ * report `not-supported` so Onboarding and Settings degrade gracefully to
+ * PIN-only.
+ */
+import { NativeBiometric } from '@capgo/capacitor-native-biometric';
+
+const SERVER = 'saldo@local';
+const USERNAME = 'saldo-pin';
 
 export interface BiometryStatus {
   isAvailable: boolean;
-  reason?: 'not-supported' | 'not-enrolled' | 'deferred-v03';
+  hasSavedPin: boolean;
+  reason?: 'not-supported' | 'not-enrolled' | 'not-enabled' | 'error';
+  kind?: 'fingerprint' | 'face' | 'iris' | 'device-credential' | 'multiple';
+}
+
+function mapBiometryKind(type: number): BiometryStatus['kind'] {
+  // BiometryType enum: NONE=0 TOUCH_ID=1 FACE_ID=2 FINGERPRINT=3
+  // FACE_AUTHENTICATION=4 IRIS_AUTHENTICATION=5 MULTIPLE=6 DEVICE_CREDENTIAL=7
+  switch (type) {
+    case 1:
+    case 3:
+      return 'fingerprint';
+    case 2:
+    case 4:
+      return 'face';
+    case 5:
+      return 'iris';
+    case 6:
+      return 'multiple';
+    case 7:
+      return 'device-credential';
+    default:
+      return undefined;
+  }
 }
 
 export async function getBiometryStatus(): Promise<BiometryStatus> {
-  return { isAvailable: false, reason: 'deferred-v03' };
+  try {
+    const res = await NativeBiometric.isAvailable({ useFallback: true });
+    if (!res.isAvailable) {
+      return {
+        isAvailable: false,
+        hasSavedPin: false,
+        reason: res.deviceIsSecure ? 'not-enrolled' : 'not-supported',
+      };
+    }
+    let hasSavedPin = false;
+    try {
+      const saved = await NativeBiometric.isCredentialsSaved({ server: SERVER });
+      hasSavedPin = !!saved.isSaved;
+    } catch {
+      hasSavedPin = false;
+    }
+    return {
+      isAvailable: true,
+      hasSavedPin,
+      kind: mapBiometryKind(res.biometryType),
+      reason: hasSavedPin ? undefined : 'not-enabled',
+    };
+  } catch {
+    return { isAvailable: false, hasSavedPin: false, reason: 'not-supported' };
+  }
 }
 
-export async function enableBiometry(): Promise<false> {
-  return false;
+export async function enableBiometry(pin: string): Promise<boolean> {
+  try {
+    await NativeBiometric.verifyIdentity({
+      reason: 'Activar desbloqueo biométrico',
+      title: 'Saldo',
+      subtitle: 'Guardar PIN cifrado en el keystore del sistema',
+    });
+    await NativeBiometric.setCredentials({
+      username: USERNAME,
+      password: pin,
+      server: SERVER,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export async function authenticateBiometry(): Promise<false> {
-  return false;
+export async function authenticateBiometry(): Promise<string | false> {
+  try {
+    await NativeBiometric.verifyIdentity({
+      reason: 'Desbloquear Saldo',
+      title: 'Saldo',
+      subtitle: 'Usa tu huella o rostro',
+    });
+    const creds = await NativeBiometric.getCredentials({ server: SERVER });
+    return creds.password;
+  } catch {
+    return false;
+  }
 }
 
 export async function disableBiometry(): Promise<void> {
-  // no-op — nothing to clear while biometry is disabled project-wide.
+  try {
+    await NativeBiometric.deleteCredentials({ server: SERVER });
+  } catch {
+    // no-op — nothing to clear.
+  }
 }

@@ -6,7 +6,10 @@ import { OnboardingFlow } from './OnboardingFlow';
 
 // Mock getBiometryStatus to avoid async fetch in tests
 vi.mock('@/lib/crypto', () => ({
-  getBiometryStatus: vi.fn().mockResolvedValue({ isAvailable: false, reason: 'deferred-v03' }),
+  getBiometryStatus: vi
+    .fn()
+    .mockResolvedValue({ isAvailable: false, hasSavedPin: false, reason: 'not-supported' }),
+  enableBiometry: vi.fn().mockResolvedValue(false),
 }));
 
 // Mock setupPin to avoid PBKDF2
@@ -57,7 +60,7 @@ describe('OnboardingFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
     // Should reach biometrics
     await waitFor(() => {
-      expect(screen.getByText('Autenticacion biometrica')).toBeTruthy();
+      expect(screen.getByText('Autenticación biométrica')).toBeTruthy();
     });
   });
 
@@ -70,10 +73,10 @@ describe('OnboardingFlow', () => {
     clickDigits('1234');
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
     await waitFor(() => {
-      expect(screen.getByText('Autenticacion biometrica')).toBeTruthy();
+      expect(screen.getByText('Autenticación biométrica')).toBeTruthy();
     });
     // Continue through biometrics
-    fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
+    fireEvent.click(screen.getByRole('button', { name: /SALTAR BIOMETRIA|CONTINUAR/i }));
     expect(screen.getByText('¿Como quieres empezar?')).toBeTruthy();
   });
 
@@ -85,8 +88,8 @@ describe('OnboardingFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
     clickDigits('1234');
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
-    await waitFor(() => screen.getByText('Autenticacion biometrica'));
-    fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
+    await waitFor(() => screen.getByText('Autenticación biométrica'));
+    fireEvent.click(screen.getByRole('button', { name: /SALTAR BIOMETRIA|CONTINUAR/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Saltar por ahora' }));
     expect(onDone).toHaveBeenCalledOnce();
   });
@@ -99,8 +102,8 @@ describe('OnboardingFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
     clickDigits('1234');
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
-    await waitFor(() => screen.getByText('Autenticacion biometrica'));
-    fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
+    await waitFor(() => screen.getByText('Autenticación biométrica'));
+    fireEvent.click(screen.getByRole('button', { name: /SALTAR BIOMETRIA|CONTINUAR/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Import CSV (recomendado)' }));
     expect(onDone).toHaveBeenCalledOnce();
   });

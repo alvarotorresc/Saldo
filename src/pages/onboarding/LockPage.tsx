@@ -1,12 +1,16 @@
-// LockPage — PIN unlock screen. Reads useLock directly.
+// LockPage — PIN / biometry unlock screen. Reads useLock directly.
 //
 // Auto-submits when PIN reaches 4-6 digits. On failure: shake dots 300ms,
 // clear PIN. On lockout: disables pad and shows countdown.
-// No biometrics UI in v0.2 (deferred).
+// When biometry is available and the user has enrolled a PIN in the
+// keystore, shows a "USE BIOMETRY" button that invokes unlockWithBiometry.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLock, LOCKOUT_THRESHOLD } from '@/stores/lock';
+import { getBiometryStatus, type BiometryStatus } from '@/lib/crypto';
 import { PinPad } from '@/ui/PinPad';
+import { Btn } from '@/ui/primitives/Btn';
+import { Icon } from '@/ui/Icon';
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -18,12 +22,50 @@ function formatCountdown(ms: number): string {
 }
 
 export function LockPage() {
-  const { unlock, failedAttempts, lockedOutUntil } = useLock();
+  const { unlock, unlockWithBiometry, failedAttempts, lockedOutUntil } = useLock();
   const [pin, setPin] = useState('');
   const [time, setTime] = useState(() => formatTime(new Date()));
   const [shaking, setShaking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [countdown, setCountdown] = useState<number>(0);
+  const [bio, setBio] = useState<BiometryStatus | null>(null);
+
+  useEffect(() => {
+    let cancel = false;
+    getBiometryStatus()
+      .then((s) => {
+        if (!cancel) setBio(s);
+      })
+      .catch(() => {
+        if (!cancel) setBio({ isAvailable: false, hasSavedPin: false, reason: 'not-supported' });
+      });
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  const bioAvailable = bio?.isAvailable && bio?.hasSavedPin;
+
+  async function tryBiometry() {
+    if (!bioAvailable || submitting) return;
+    setSubmitting(true);
+    try {
+      const ok = await unlockWithBiometry();
+      if (!ok) {
+        setShaking(true);
+        setTimeout(() => setShaking(false), 300);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // Auto-trigger biometry on mount when enabled so the user doesn't have to
+  // tap the button every time.
+  useEffect(() => {
+    if (bioAvailable && !submitting && !pin) void tryBiometry();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bioAvailable]);
 
   // Update clock every 60s
   useEffect(() => {
@@ -123,6 +165,17 @@ export function LockPage() {
           dotsAccent={!isLockedOut}
         />
       </div>
+
+      {bioAvailable && !isLockedOut && (
+        <Btn
+          variant="outline"
+          onClick={() => void tryBiometry()}
+          disabled={submitting}
+          data-testid="bio-unlock"
+        >
+          <Icon name="finger" size={14} /> USAR_BIOMETRIA
+        </Btn>
+      )}
     </div>
   );
 }

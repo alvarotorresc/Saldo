@@ -153,11 +153,23 @@ describe('storage (web fallback)', () => {
   });
 });
 
-describe('biometric stub', () => {
-  it('is never available in v0.2', async () => {
-    const { getBiometryStatus, enableBiometry, authenticateBiometry } = await import('./biometric');
-    expect((await getBiometryStatus()).isAvailable).toBe(false);
-    expect(await enableBiometry()).toBe(false);
+describe('biometric web shim (jsdom)', () => {
+  it('reports isAvailable=true on the Capacitor web shim and round-trips enable→authenticate', async () => {
+    const { getBiometryStatus, enableBiometry, authenticateBiometry, disableBiometry } =
+      await import('./biometric');
+    // Ensure clean state across test runs (shim uses in-memory Map).
+    await disableBiometry();
+
+    const status = await getBiometryStatus();
+    expect(status.isAvailable).toBe(true);
+    expect(status.hasSavedPin).toBe(false);
+
+    expect(await enableBiometry('123456')).toBe(true);
+    const afterEnable = await getBiometryStatus();
+    expect(afterEnable.hasSavedPin).toBe(true);
+    expect(await authenticateBiometry()).toBe('123456');
+
+    await disableBiometry();
     expect(await authenticateBiometry()).toBe(false);
   });
 });

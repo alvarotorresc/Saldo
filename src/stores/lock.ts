@@ -14,6 +14,8 @@ import {
   clearEncryptedSnapshot,
   decryptAndRestore,
   encryptAndWipe,
+  authenticateBiometry,
+  disableBiometry,
 } from '@/lib/crypto';
 
 export type LockStatus = 'booting' | 'welcome' | 'setup' | 'locked' | 'unlocked';
@@ -32,6 +34,7 @@ export interface LockState {
   boot(): Promise<void>;
   setupPin(pin: string): Promise<void>;
   unlock(pin: string): Promise<boolean>;
+  unlockWithBiometry(): Promise<boolean>;
   lock(): Promise<void>;
   setAutoLockMs(ms: number): void;
   registerActivity(): void;
@@ -144,9 +147,16 @@ export const useLock = create<LockState>((set, get) => ({
     set({ lastActivityAt: Date.now() });
   },
 
+  async unlockWithBiometry() {
+    const pin = await authenticateBiometry();
+    if (!pin) return false;
+    return get().unlock(pin);
+  },
+
   async wipeVault() {
     await clearVault();
     clearEncryptedSnapshot();
+    await disableBiometry();
     set({
       master: null,
       status: 'welcome',
