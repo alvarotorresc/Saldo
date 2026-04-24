@@ -128,6 +128,9 @@ export interface Rule {
   pattern: string; // substring (case-insensitive)
   categoryId: number;
   priority: number;
+  enabled?: 0 | 1; // undefined treated as enabled for back-compat
+  hits?: number;
+  lastHitAt?: number;
 }
 
 export interface AppMeta {

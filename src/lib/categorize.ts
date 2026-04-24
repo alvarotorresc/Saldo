@@ -1,6 +1,7 @@
 import { db } from '@/db/database';
 import type { Rule, Transaction } from '@/types';
 import { normalizeDesc } from '@/lib/importers/parse-helpers';
+import { incrementRuleHit, matchRule } from '@/lib/rules';
 
 let rulesCache: Rule[] | null = null;
 
@@ -21,8 +22,10 @@ export async function categorize(
 ): Promise<number | undefined> {
   const rules = await getRules();
   const hay = normalizeDesc(`${tx.merchant ?? ''} ${tx.description}`);
-  for (const r of rules) {
-    if (hay.includes(normalizeDesc(r.pattern))) return r.categoryId;
+  const matched = matchRule(rules, hay);
+  if (matched?.id != null) {
+    void incrementRuleHit(matched.id);
+    return matched.categoryId;
   }
   // fallback defaults by kind: prefer a builtin "Otros" category so user renames do not break it
   const kind = tx.kind === 'expense' ? 'expense' : 'income';

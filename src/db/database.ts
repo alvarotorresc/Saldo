@@ -104,6 +104,32 @@ class SaldoDB extends Dexie {
       balances: '++id, accountId, month, [accountId+month]',
       meta: '&key',
     });
+    // v5 — rules gain `enabled`, `hits`, `lastHitAt` for the F6 Rules UI.
+    this.version(5)
+      .stores({
+        accounts: '++id, name, bank, archived',
+        categoryGroups: '++id, name, kind, order',
+        categories: '++id, name, kind, groupId, builtin',
+        transactions:
+          '++id, accountId, date, month, kind, categoryId, importHash, reimbursementFor, [accountId+importHash]',
+        budgets: '++id, month, categoryId, [month+categoryId]',
+        goals: '++id, name, deadline',
+        recurring: '++id, signature, kind',
+        rules: '++id, priority, categoryId, enabled',
+        subscriptions: '++id, name, cadence, nextCharge, active',
+        loans: '++id, name, startDate',
+        balances: '++id, accountId, month, [accountId+month]',
+        meta: '&key',
+      })
+      .upgrade(async (trans) => {
+        const table = trans.table<Rule, number>('rules');
+        const all = await table.toArray();
+        for (const r of all) {
+          if (r.id != null && r.enabled === undefined) {
+            await table.update(r.id, { enabled: 1, hits: r.hits ?? 0 });
+          }
+        }
+      });
   }
 }
 
