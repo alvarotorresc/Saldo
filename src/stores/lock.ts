@@ -290,14 +290,24 @@ export const useLock = create<LockState>((set, get) => ({
     await saveVaultMeta(wrapped, iv, bytesToBase64(newSalt));
     // Keep the biometric keystore in sync. Without this, users with biometry
     // enabled silently lock themselves out on next unlockWithBiometry because
-    // getCredentials returns the old PIN.
+    // getCredentials returns the old PIN. If re-enabling fails (user cancels
+    // the biometric prompt, keystore full, etc.) we MUST drop the stale
+    // credential via disableBiometry; otherwise the next unlockWithBiometry
+    // feeds the old PIN into unlock() and burns failedAttempts toward a
+    // lockout the user cannot even understand.
     try {
       const bio = await getBiometryStatus();
       if (bio.hasSavedPin) {
-        await enableBiometry(newPin);
+        const reEnabled = await enableBiometry(newPin);
+        if (!reEnabled) await disableBiometry();
       }
     } catch (e) {
       console.warn('changePin: biometry keystore update skipped', e);
+      try {
+        await disableBiometry();
+      } catch {
+        // best-effort cleanup
+      }
     }
     set({ master, failedAttempts: 0, lockedOutUntil: null });
     return true;

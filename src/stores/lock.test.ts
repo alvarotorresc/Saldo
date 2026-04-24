@@ -343,6 +343,24 @@ describe('lock store changePin', () => {
     expect(ok).toBe(false);
   });
 
+  it('disables biometry when re-enabling fails post-changePin (S-ALTO-001)', async () => {
+    const mod = await import('@/lib/crypto');
+    const statusSpy = vi
+      .spyOn(mod, 'getBiometryStatus')
+      .mockResolvedValue({ isAvailable: true, hasSavedPin: true, kind: 'fingerprint' });
+    const enableSpy = vi.spyOn(mod, 'enableBiometry').mockResolvedValue(false);
+    const disableSpy = vi.spyOn(mod, 'disableBiometry').mockResolvedValue(undefined);
+
+    const ok = await useLock.getState().changePin('111111', '222222');
+    expect(ok).toBe(true);
+    expect(enableSpy).toHaveBeenCalledWith('222222');
+    expect(disableSpy).toHaveBeenCalled();
+
+    statusSpy.mockRestore();
+    enableSpy.mockRestore();
+    disableSpy.mockRestore();
+  });
+
   it('after changePin, snapshot still decrypts with the (same) master key', async () => {
     // Seed, lock, change pin, lock again, unlock with new — data survives.
     await useLock.getState().lock();
