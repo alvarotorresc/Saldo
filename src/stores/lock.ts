@@ -30,6 +30,9 @@ export const DEFAULT_AUTO_LOCK_MS = 30_000;
 export const LOCKOUT_MS = 30_000;
 export const LOCKOUT_THRESHOLD = 3;
 export const AUTO_LOCK_META_KEY = 'autoLockMs';
+export const PIN_MIN_LENGTH = 6;
+
+export type UnlockError = 'wrong-pin' | 'vault-corrupt' | 'locked-out';
 
 async function loadAutoLockMs(): Promise<number | null> {
   try {
@@ -58,6 +61,8 @@ export interface LockState {
   lockedOutUntil: number | null;
   lastActivityAt: number;
   autoLockMs: number;
+  lastUnlockError: UnlockError | null;
+  _locking: boolean;
   boot(): Promise<void>;
   setupPin(pin: string): Promise<void>;
   unlock(pin: string): Promise<boolean>;
@@ -78,6 +83,8 @@ export const useLock = create<LockState>((set, get) => ({
   lockedOutUntil: null,
   lastActivityAt: Date.now(),
   autoLockMs: DEFAULT_AUTO_LOCK_MS,
+  lastUnlockError: null,
+  _locking: false,
 
   async boot() {
     // Hydrate autoLockMs from db.meta (plaintext setting, not in the encrypted
@@ -111,7 +118,9 @@ export const useLock = create<LockState>((set, get) => ({
   },
 
   async setupPin(pin: string) {
-    if (pin.length < 4) throw new Error('PIN minimo 4 digitos.');
+    if (pin.length < PIN_MIN_LENGTH) {
+      throw new Error(`PIN mínimo ${PIN_MIN_LENGTH} dígitos.`);
+    }
     const salt = randomBytes(KDF_SALT_BYTES);
     const pinKey = await derivePinKey(pin, salt);
     const master = await generateMasterKey();
@@ -135,6 +144,7 @@ export const useLock = create<LockState>((set, get) => ({
     const now = Date.now();
     const { lockedOutUntil } = get();
     if (lockedOutUntil && now < lockedOutUntil) {
+      set({ lastUnlockError: 'locked-out' });
       return false;
     }
     const vault = await loadVault();
@@ -143,55 +153,71 @@ export const useLock = create<LockState>((set, get) => ({
     try {
       pinKey = await derivePinKey(pin, base64ToBytes(vault.kdfSalt));
     } catch {
+      set({ lastUnlockError: 'wrong-pin' });
       return false;
     }
+    let master: CryptoKey;
     try {
-      const master = await unwrapMasterKey(vault.wrappedKey, vault.wrapIv, pinKey);
-      // If we have a previously-encrypted snapshot, decrypt and restore Dexie
-      // before surfacing the unlocked state to the UI. First-setup unlocks
-      // leave Dexie untouched because no snapshot exists yet.
-      try {
-        await decryptAndRestore(master);
-      } catch (e) {
-        // Corrupt or mismatched payload: abort the unlock to avoid exposing
-        // stale/plaintext tables. Signals to the UI that the vault is bad.
-        console.error('decryptAndRestore failed', e);
-        return false;
-      }
-      set({
-        master,
-        status: 'unlocked',
-        failedAttempts: 0,
-        lockedOutUntil: null,
-        lastActivityAt: Date.now(),
-      });
-      return true;
+      master = await unwrapMasterKey(vault.wrappedKey, vault.wrapIv, pinKey);
     } catch {
+      // Wrong PIN: AES-GCM auth tag rejects before we ever reach Dexie.
       const nextFailed = get().failedAttempts + 1;
       const nextLockout = nextFailed >= LOCKOUT_THRESHOLD ? Date.now() + LOCKOUT_MS : null;
       set({
         failedAttempts: nextFailed,
         lockedOutUntil: nextLockout,
+        lastUnlockError: 'wrong-pin',
       });
       return false;
     }
+    // Master key is valid — PIN is correct. If decryptAndRestore now fails,
+    // the snapshot is corrupt: we must not blame the user (failedAttempts
+    // stays untouched) and surface a distinct error so the UI can tell them
+    // to consider a restore instead of retrying the PIN.
+    try {
+      await decryptAndRestore(master);
+    } catch (e) {
+      console.error('decryptAndRestore failed', e);
+      set({ lastUnlockError: 'vault-corrupt' });
+      return false;
+    }
+    set({
+      master,
+      status: 'unlocked',
+      failedAttempts: 0,
+      lockedOutUntil: null,
+      lastActivityAt: Date.now(),
+      lastUnlockError: null,
+    });
+    return true;
   },
 
   async lock() {
-    const { master } = get();
-    if (master) {
-      try {
-        await encryptAndWipe(master);
-      } catch (e) {
-        // localStorage unavailable or Dexie broken: surface the failure but
-        // still drop the master from memory. The UI promised to lock; keeping
-        // the master alive would be a lie. We accept that plaintext may remain
-        // in Dexie (unavoidable without localStorage) and rely on boot()'s
-        // hard-kill recovery to clear it on next launch.
-        console.error('encryptAndWipe failed; dropping master anyway', e);
+    // Reentrancy guard (S-MEDIO-002): autoLock timer and visibilitychange
+    // can fire within the same tick. Two concurrent encryptAndWipe calls
+    // would race on the BACKUP_KEY rotation (one overwrites the other's
+    // "previous" payload) and could leave Dexie half-wiped. The second
+    // caller exits immediately — the first will finish with status=locked.
+    if (get()._locking) return;
+    set({ _locking: true });
+    try {
+      const { master } = get();
+      if (master) {
+        try {
+          await encryptAndWipe(master);
+        } catch (e) {
+          // localStorage unavailable or Dexie broken: surface the failure but
+          // still drop the master from memory. The UI promised to lock;
+          // keeping the master alive would be a lie. We accept that plaintext
+          // may remain in Dexie (unavoidable without localStorage) and rely
+          // on boot()'s hard-kill recovery to clear it on next launch.
+          console.error('encryptAndWipe failed; dropping master anyway', e);
+        }
       }
+      set({ master: null, status: 'locked' });
+    } finally {
+      set({ _locking: false });
     }
-    set({ master: null, status: 'locked' });
   },
 
   setAutoLockMs(ms: number) {
@@ -245,7 +271,9 @@ export const useLock = create<LockState>((set, get) => ({
   },
 
   async changePin(oldPin: string, newPin: string) {
-    if (newPin.length < 4) throw new Error('PIN minimo 4 digitos.');
+    if (newPin.length < PIN_MIN_LENGTH) {
+      throw new Error(`PIN mínimo ${PIN_MIN_LENGTH} dígitos.`);
+    }
     const vault = await loadVault();
     if (!vault) throw new Error('No hay vault.');
     let oldPinKey: CryptoKey;

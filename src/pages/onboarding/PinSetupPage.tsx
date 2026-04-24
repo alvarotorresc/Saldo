@@ -7,7 +7,7 @@
 //   with an error banner. If match → call setupPin + onComplete.
 
 import { useState, useRef } from 'react';
-import { useLock } from '@/stores/lock';
+import { PIN_MIN_LENGTH, useLock } from '@/stores/lock';
 import { PinPad } from '@/ui/PinPad';
 import { TopBarV2 } from '@/ui/TopBarV2';
 import { Btn } from '@/ui/primitives/Btn';
@@ -27,14 +27,14 @@ export function PinSetupPage({ onComplete, onBack }: Props) {
   const derivingRef = useRef(false);
 
   function handleContinue() {
-    if (pin.length < 4) return;
+    if (pin.length < PIN_MIN_LENGTH) return;
     setConfirmPin('');
     setError(null);
     setStep('confirm');
   }
 
   async function handleConfirm() {
-    if (confirmPin.length < 4) return;
+    if (confirmPin.length < PIN_MIN_LENGTH) return;
     if (confirmPin !== pin) {
       setError('Los PINs no coinciden');
       setPin('');
@@ -88,7 +88,7 @@ export function PinSetupPage({ onComplete, onBack }: Props) {
 
         {/* Label */}
         <p className="font-mono text-mono11 text-muted tracking-wider">
-          {step === 'enter' ? 'Crea tu PIN (min 4 digitos)' : 'Confirma tu PIN'}
+          {step === 'enter' ? `Crea tu PIN (min ${PIN_MIN_LENGTH} digitos)` : 'Confirma tu PIN'}
         </p>
 
         {/* PinPad */}
@@ -101,7 +101,13 @@ export function PinSetupPage({ onComplete, onBack }: Props) {
         {/* Continue / confirm button */}
         <div className="w-full max-w-[280px]">
           {step === 'enter' ? (
-            <Btn variant="solid" size="lg" block disabled={pin.length < 4} onClick={handleContinue}>
+            <Btn
+              variant="solid"
+              size="lg"
+              block
+              disabled={pin.length < PIN_MIN_LENGTH}
+              onClick={handleContinue}
+            >
               CONTINUAR →
             </Btn>
           ) : (
@@ -109,7 +115,7 @@ export function PinSetupPage({ onComplete, onBack }: Props) {
               variant="solid"
               size="lg"
               block
-              disabled={confirmPin.length < 4}
+              disabled={confirmPin.length < PIN_MIN_LENGTH}
               onClick={handleConfirm}
             >
               CONFIRMAR PIN →

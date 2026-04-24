@@ -29,26 +29,26 @@ describe('PinSetupPage', () => {
     expect(screen.getByText(/Crea tu PIN/i)).toBeTruthy();
   });
 
-  it('CONTINUAR button is disabled until 4 digits entered', () => {
+  it('CONTINUAR button is disabled until 6 digits entered', () => {
     render(<PinSetupPage onComplete={vi.fn()} />);
     const btn = screen.getByRole('button', { name: /CONTINUAR/i });
     expect(btn).toBeDisabled();
-    clickDigits('123');
+    clickDigits('12345');
     expect(btn).toBeDisabled();
-    clickDigits('4');
+    clickDigits('6');
     expect(btn).not.toBeDisabled();
   });
 
   it('advances to confirm step when CONTINUAR is clicked', () => {
     render(<PinSetupPage onComplete={vi.fn()} />);
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
     expect(screen.getByText(/Confirma tu PIN/i)).toBeTruthy();
   });
 
   it('confirm step resets to empty pin pad', () => {
     render(<PinSetupPage onComplete={vi.fn()} />);
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
     // Dots should all be empty in confirm step
     const status = screen.getByRole('status', { name: /PIN/i });
@@ -59,10 +59,10 @@ describe('PinSetupPage', () => {
   it('shows mismatch error and returns to enter step', async () => {
     render(<PinSetupPage onComplete={vi.fn()} />);
     // Enter PIN 1234
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
     // Confirm with different PIN 5678
-    clickDigits('5678');
+    clickDigits('789012');
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeTruthy();
@@ -76,15 +76,15 @@ describe('PinSetupPage', () => {
     const onComplete = vi.fn();
     render(<PinSetupPage onComplete={onComplete} />);
     // Enter PIN
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
     // Confirm same PIN
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
     await waitFor(() => {
       expect(onComplete).toHaveBeenCalledOnce();
     });
-    expect(useLock.getState().setupPin).toHaveBeenCalledWith('1234');
+    expect(useLock.getState().setupPin).toHaveBeenCalledWith('123456');
   });
 
   it('shows deriving state during setupPin', async () => {
@@ -98,9 +98,9 @@ describe('PinSetupPage', () => {
     useLock.setState({ setupPin: slowSetup as LockState['setupPin'] });
 
     render(<PinSetupPage onComplete={vi.fn()} />);
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
     await waitFor(() => {
       expect(screen.getByText(/DERIVANDO CLAVE/)).toBeTruthy();

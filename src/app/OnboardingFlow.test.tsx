@@ -53,10 +53,10 @@ describe('OnboardingFlow', () => {
     // Navigate to pin-setup
     fireEvent.click(screen.getByRole('button', { name: /COMENZAR/i }));
     // Enter PIN
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
     // Confirm PIN
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
     // Should reach biometrics
     await waitFor(() => {
@@ -68,9 +68,9 @@ describe('OnboardingFlow', () => {
     render(<OnboardingFlow onDone={vi.fn()} />);
     // Go to pin-setup
     fireEvent.click(screen.getByRole('button', { name: /COMENZAR/i }));
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
     await waitFor(() => {
       expect(screen.getByText('Autenticación biométrica')).toBeTruthy();
@@ -84,9 +84,9 @@ describe('OnboardingFlow', () => {
     const onDone = vi.fn();
     render(<OnboardingFlow onDone={onDone} />);
     fireEvent.click(screen.getByRole('button', { name: /COMENZAR/i }));
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
     await waitFor(() => screen.getByText('Autenticación biométrica'));
     fireEvent.click(screen.getByRole('button', { name: /SALTAR BIOMETRIA|CONTINUAR/i }));
@@ -98,9 +98,9 @@ describe('OnboardingFlow', () => {
     const onDone = vi.fn();
     render(<OnboardingFlow onDone={onDone} />);
     fireEvent.click(screen.getByRole('button', { name: /COMENZAR/i }));
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONTINUAR/i }));
-    clickDigits('1234');
+    clickDigits('123456');
     fireEvent.click(screen.getByRole('button', { name: /CONFIRMAR/i }));
     await waitFor(() => screen.getByText('Autenticación biométrica'));
     fireEvent.click(screen.getByRole('button', { name: /SALTAR BIOMETRIA|CONTINUAR/i }));

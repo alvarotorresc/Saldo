@@ -10,7 +10,7 @@ import { Icon, type IconName } from '@/ui/Icon';
 import { Badge, Btn } from '@/ui/primitives';
 import { Sheet } from '@/ui/Sheet';
 import { PinPad } from '@/ui/PinPad';
-import { useLock, DEFAULT_AUTO_LOCK_MS } from '@/stores/lock';
+import { DEFAULT_AUTO_LOCK_MS, PIN_MIN_LENGTH, useLock } from '@/stores/lock';
 import { useMeta } from '@/stores/meta';
 import {
   disableBiometry,
@@ -345,8 +345,8 @@ function ChangePinSheet({ open, onClose }: { open: boolean; onClose: () => void 
       return;
     }
     if (phase === 'new') {
-      if (newPin.length < 4) {
-        setError('PIN mínimo 4 dígitos.');
+      if (newPin.length < PIN_MIN_LENGTH) {
+        setError(`PIN mínimo ${PIN_MIN_LENGTH} dígitos.`);
         return;
       }
       setPhase('confirm');
@@ -376,9 +376,9 @@ function ChangePinSheet({ open, onClose }: { open: boolean; onClose: () => void 
   const value = phase === 'old' ? oldPin : phase === 'new' ? newPin : confirmPin;
   const setValue = phase === 'old' ? setOldPin : phase === 'new' ? setNewPin : setConfirmPin;
   const canSubmit =
-    (phase === 'old' && oldPin.length >= 4) ||
-    (phase === 'new' && newPin.length >= 4) ||
-    (phase === 'confirm' && confirmPin.length >= 4);
+    (phase === 'old' && oldPin.length >= PIN_MIN_LENGTH) ||
+    (phase === 'new' && newPin.length >= PIN_MIN_LENGTH) ||
+    (phase === 'confirm' && confirmPin.length >= PIN_MIN_LENGTH);
 
   return (
     <Sheet
@@ -407,7 +407,7 @@ function ChangePinSheet({ open, onClose }: { open: boolean; onClose: () => void 
         <div className="space-y-3">
           <p className="font-mono text-mono10 text-dim text-center">
             {phase === 'old' && 'Introduce tu PIN actual'}
-            {phase === 'new' && 'Nuevo PIN (≥4 dígitos)'}
+            {phase === 'new' && `Nuevo PIN (≥${PIN_MIN_LENGTH} dígitos)`}
             {phase === 'confirm' && 'Confirma el nuevo PIN'}
           </p>
           <PinPad value={value} onChange={setValue} />
@@ -494,7 +494,7 @@ function BiometryEnableSheet({
           variant="solid"
           block
           onClick={() => void submit()}
-          disabled={pin.length < 4 || busy}
+          disabled={pin.length < PIN_MIN_LENGTH || busy}
           data-testid="biometry-enable-submit"
         >
           {busy ? 'VERIFICANDO…' : 'ACTIVAR'}
