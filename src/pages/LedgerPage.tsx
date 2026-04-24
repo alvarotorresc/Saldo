@@ -18,6 +18,7 @@ import { TxForm } from '@/features/transactions/TxForm';
 import type { Category, Transaction } from '@/types';
 import { filterTx, groupTxByDate, summarize } from './LedgerPage.helpers';
 import type { LedgerKindFilter } from './LedgerPage.helpers';
+import { matchesFilter, useLedgerFilter } from '@/stores/ledgerFilter';
 
 // ─── Context menu ─────────────────────────────────────────────────────────────
 
@@ -226,7 +227,13 @@ const TABS: { label: string; value: LedgerKindFilter }[] = [
 
 // ─── LedgerPage ───────────────────────────────────────────────────────────────
 
-export function LedgerPage() {
+interface LedgerPageProps {
+  onOpenTx?: (txId: number) => void;
+  onOpenFilter?: () => void;
+  onNewTx?: () => void;
+}
+
+export function LedgerPage({ onOpenTx, onOpenFilter, onNewTx }: LedgerPageProps = {}) {
   const month = useApp((s) => s.month);
   const setMonth = useApp((s) => s.setMonth);
 
@@ -252,7 +259,13 @@ export function LedgerPage() {
     return map;
   }, [categories]);
 
-  const filtered = useMemo(() => filterTx(all ?? [], query, kindFilter), [all, query, kindFilter]);
+  const filterState = useLedgerFilter();
+  const filtered = useMemo(() => {
+    const base = filterTx(all ?? [], query, kindFilter);
+    // Apply FilterSheet state on top. Period=current is a no-op here because
+    // `all` is already scoped to the active month via useLiveQuery below.
+    return base.filter((t) => matchesFilter(t, filterState, month));
+  }, [all, query, kindFilter, filterState, month]);
 
   const groups = useMemo(() => groupTxByDate(filtered), [filtered]);
   const summary = useMemo(() => summarize(filtered), [filtered]);
@@ -322,7 +335,15 @@ export function LedgerPage() {
             {showCaret && <span className="caret-blink pointer-events-none" aria-hidden="true" />}
           </div>
         </div>
-        <Icon name="filter" size={13} className="text-muted shrink-0" />
+        <button
+          type="button"
+          onClick={onOpenFilter}
+          aria-label="Filtros"
+          className="press p-1 text-muted shrink-0"
+          data-testid="ledger-filter-btn"
+        >
+          <Icon name="filter" size={13} />
+        </button>
       </div>
 
       {/* Tabs */}
@@ -415,7 +436,10 @@ export function LedgerPage() {
                       tx={tx}
                       catName={cat?.name}
                       onLongPress={handleLongPress}
-                      onClick={setEditing}
+                      onClick={(t) => {
+                        if (onOpenTx && t.id != null) onOpenTx(t.id);
+                        else setEditing(t);
+                      }}
                     />
                   );
                 })}
@@ -435,7 +459,7 @@ export function LedgerPage() {
         <FAB
           aria-label="Añadir movimiento"
           icon={<Icon name="plus" size={20} />}
-          onClick={() => setAddOpen(true)}
+          onClick={() => (onNewTx ? onNewTx() : setAddOpen(true))}
         />
       )}
 

@@ -5,6 +5,11 @@ import { BottomNav, type Tab } from '@/ui/BottomNav';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { TransactionsPage } from '@/pages/TransactionsPage';
 import { LedgerPage } from '@/pages/LedgerPage';
+import { TxDetailPage } from '@/pages/TxDetailPage';
+import { NewTxPage } from '@/pages/NewTxPage';
+import { FilterSheet } from '@/ui/sheets/FilterSheet';
+import { QuickActionsSheet } from '@/ui/sheets/QuickActionsSheet';
+import { CommandPalette, type Command } from '@/ui/CommandPalette';
 import { ImportPage } from '@/pages/ImportPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { MorePage, type MoreSection } from '@/pages/MorePage';
@@ -87,6 +92,11 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('home');
   const [moreSection, setMoreSection] = useState<MoreSection | null>(null);
   const [seeded, setSeeded] = useState(false);
+  const [txDetailId, setTxDetailId] = useState<number | null>(null);
+  const [newTxOpen, setNewTxOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
   const status = useLock((s) => s.status);
   const boot = useLock((s) => s.boot);
 
@@ -143,52 +153,161 @@ export default function App() {
     if (t !== 'more') setMoreSection(null);
   }
 
+  const commands: Command[] = [
+    { id: 'new-expense', label: 'New expense', hint: '⌘E', onRun: () => setNewTxOpen(true) },
+    { id: 'new-income', label: 'New income', hint: '⌘I', onRun: () => setNewTxOpen(true) },
+    { id: 'new-transfer', label: 'New transfer', onRun: () => setNewTxOpen(true) },
+    { id: 'import-csv', label: 'Import CSV', onRun: () => setTab('import') },
+    { id: 'go-ledger', label: 'Go to ledger', hint: '⌘L', onRun: () => setTab('transactions') },
+    { id: 'go-dashboard', label: 'Go to dashboard', hint: '⌘D', onRun: () => setTab('home') },
+    {
+      id: 'go-subs',
+      label: 'Subscriptions',
+      onRun: () => {
+        setTab('more');
+        setMoreSection('subscriptions');
+      },
+    },
+    {
+      id: 'go-goals',
+      label: 'Goals',
+      onRun: () => {
+        setTab('more');
+        setMoreSection('goals');
+      },
+    },
+    {
+      id: 'go-loans',
+      label: 'Loans',
+      onRun: () => {
+        setTab('more');
+        setMoreSection('loans');
+      },
+    },
+    {
+      id: 'go-charts',
+      label: 'Charts',
+      onRun: () => {
+        setTab('more');
+        setMoreSection('charts');
+      },
+    },
+    {
+      id: 'go-categories',
+      label: 'Categories',
+      onRun: () => {
+        setTab('more');
+        setMoreSection('categories');
+      },
+    },
+    { id: 'settings', label: 'Settings', onRun: () => setTab('settings') },
+    { id: 'lock', label: 'Lock now', onRun: () => useLock.getState().lock() },
+  ];
+
   return (
     <div className="h-full flex flex-col bg-bg text-text">
       <div className="h-full flex flex-col w-full max-w-[480px] md:max-w-[720px] mx-auto md:border-x md:border-border">
         <ErrorBoundary>
           <main className="flex-1 min-h-0 flex flex-col">
-            {tab === 'home' && (
-              <DashboardPage
-                onGoImport={() => setTab('import')}
-                onGoTransactions={() => setTab('transactions')}
-                onGoSubscriptions={() => {
-                  setTab('more');
-                  setMoreSection('subscriptions');
-                }}
-                onGoCharts={() => {
-                  setTab('more');
-                  setMoreSection('charts');
+            {txDetailId != null ? (
+              <TxDetailPage
+                txId={txDetailId}
+                onBack={() => setTxDetailId(null)}
+                onDeleted={() => setTxDetailId(null)}
+              />
+            ) : newTxOpen ? (
+              <NewTxPage
+                onBack={() => setNewTxOpen(false)}
+                onCommitted={(id) => {
+                  setNewTxOpen(false);
+                  setTab('transactions');
+                  setTxDetailId(id);
                 }}
               />
+            ) : (
+              <>
+                {tab === 'home' && (
+                  <DashboardPage
+                    onGoImport={() => setTab('import')}
+                    onGoTransactions={() => setTab('transactions')}
+                    onGoSubscriptions={() => {
+                      setTab('more');
+                      setMoreSection('subscriptions');
+                    }}
+                    onGoCharts={() => {
+                      setTab('more');
+                      setMoreSection('charts');
+                    }}
+                  />
+                )}
+                {tab === 'transactions' && (
+                  <LedgerPage
+                    onOpenTx={(id) => setTxDetailId(id)}
+                    onOpenFilter={() => setFilterOpen(true)}
+                    onNewTx={() => setNewTxOpen(true)}
+                  />
+                )}
+                {/* TransactionsPage kept for regression fallback until F9 purge */}
+                {false && <TransactionsPage />}
+                {tab === 'import' && <ImportPage />}
+                {tab === 'more' &&
+                  (moreSection == null ? (
+                    <MorePage onOpen={openMore} />
+                  ) : moreSection === 'goals' ? (
+                    <GoalsPage onBack={() => setMoreSection(null)} />
+                  ) : moreSection === 'subscriptions' ? (
+                    <SubscriptionsPage onBack={() => setMoreSection(null)} />
+                  ) : moreSection === 'loans' ? (
+                    <LoansPage onBack={() => setMoreSection(null)} />
+                  ) : moreSection === 'charts' ? (
+                    <ChartsPage onBack={() => setMoreSection(null)} />
+                  ) : moreSection === 'wealth' ? (
+                    <WealthPage onBack={() => setMoreSection(null)} />
+                  ) : moreSection === 'categories' ? (
+                    <CategoriesPage onBack={() => setMoreSection(null)} />
+                  ) : moreSection === 'forecast' ? (
+                    <ForecastPage onBack={() => setMoreSection(null)} />
+                  ) : null)}
+                {tab === 'settings' && <SettingsPage />}
+              </>
             )}
-            {tab === 'transactions' && <LedgerPage />}
-            {/* TransactionsPage kept for regression fallback until F9 purge */}
-            {false && <TransactionsPage />}
-            {tab === 'import' && <ImportPage />}
-            {tab === 'more' &&
-              (moreSection == null ? (
-                <MorePage onOpen={openMore} />
-              ) : moreSection === 'goals' ? (
-                <GoalsPage onBack={() => setMoreSection(null)} />
-              ) : moreSection === 'subscriptions' ? (
-                <SubscriptionsPage onBack={() => setMoreSection(null)} />
-              ) : moreSection === 'loans' ? (
-                <LoansPage onBack={() => setMoreSection(null)} />
-              ) : moreSection === 'charts' ? (
-                <ChartsPage onBack={() => setMoreSection(null)} />
-              ) : moreSection === 'wealth' ? (
-                <WealthPage onBack={() => setMoreSection(null)} />
-              ) : moreSection === 'categories' ? (
-                <CategoriesPage onBack={() => setMoreSection(null)} />
-              ) : moreSection === 'forecast' ? (
-                <ForecastPage onBack={() => setMoreSection(null)} />
-              ) : null)}
-            {tab === 'settings' && <SettingsPage />}
           </main>
         </ErrorBoundary>
-        <BottomNav value={tab} onChange={handleTab} />
+        <BottomNav
+          value={tab}
+          onChange={handleTab}
+          onFabLongPress={() => setQuickOpen(true)}
+          onCmdPalette={() => setCmdOpen(true)}
+        />
       </div>
+
+      <FilterSheet open={filterOpen} onClose={() => setFilterOpen(false)} />
+      <QuickActionsSheet
+        open={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        onNewExpense={() => setNewTxOpen(true)}
+        onNewIncome={() => setNewTxOpen(true)}
+        onNewTransfer={() => setNewTxOpen(true)}
+        onImport={() => setTab('import')}
+        onExport={() => setTab('settings')}
+        onNewGoal={() => {
+          setTab('more');
+          setMoreSection('goals');
+        }}
+        onNewSubscription={() => {
+          setTab('more');
+          setMoreSection('subscriptions');
+        }}
+        onNewLoan={() => {
+          setTab('more');
+          setMoreSection('loans');
+        }}
+        onNewRule={() => {
+          setTab('more');
+          setMoreSection('categories');
+        }}
+      />
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} commands={commands} />
     </div>
   );
 }
