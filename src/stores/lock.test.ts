@@ -261,6 +261,19 @@ describe('lock store lock + activity', () => {
     useLock.getState().setAutoLockMs(45_000);
     expect(useLock.getState().autoLockMs).toBe(45_000);
   });
+
+  it('setAutoLockMs persists to db.meta and boot rehydrates it (S-ALTO-003)', async () => {
+    useLock.getState().setAutoLockMs(300_000);
+    // flush the fire-and-forget persist
+    await new Promise((r) => setTimeout(r, 0));
+    const row = await db.meta.get('autoLockMs');
+    expect(row?.value).toBe('300000');
+
+    // simulate relaunch: reset in-memory + re-boot.
+    useLock.setState({ status: 'booting', autoLockMs: DEFAULT_AUTO_LOCK_MS });
+    await useLock.getState().boot();
+    expect(useLock.getState().autoLockMs).toBe(300_000);
+  });
 });
 
 // GAP-002 — changePin coverage

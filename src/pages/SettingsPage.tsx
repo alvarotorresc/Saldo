@@ -4,7 +4,7 @@
  * auto-lock stepper, wipe completo, toggle de modo Dashboard y toggle de
  * dashboardMode default.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TopBarV2 } from '@/ui/TopBarV2';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Badge, Btn } from '@/ui/primitives';
@@ -12,6 +12,12 @@ import { Sheet } from '@/ui/Sheet';
 import { PinPad } from '@/ui/PinPad';
 import { useLock, DEFAULT_AUTO_LOCK_MS } from '@/stores/lock';
 import { useMeta } from '@/stores/meta';
+import {
+  disableBiometry,
+  enableBiometry,
+  getBiometryStatus,
+  type BiometryStatus,
+} from '@/lib/crypto';
 
 const VERSION = '0.2.0';
 
@@ -33,6 +39,30 @@ export function SettingsPage() {
   const [pinOpen, setPinOpen] = useState(false);
   const [autoLockOpen, setAutoLockOpen] = useState(false);
   const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [bioStatus, setBioStatus] = useState<BiometryStatus | null>(null);
+  const [bioPinOpen, setBioPinOpen] = useState(false);
+
+  async function refreshBiometry(): Promise<void> {
+    try {
+      setBioStatus(await getBiometryStatus());
+    } catch {
+      setBioStatus({ isAvailable: false, hasSavedPin: false, reason: 'error' });
+    }
+  }
+
+  useEffect(() => {
+    void refreshBiometry();
+  }, []);
+
+  async function onBiometryToggle(): Promise<void> {
+    if (!bioStatus?.isAvailable) return;
+    if (bioStatus.hasSavedPin) {
+      await disableBiometry();
+      await refreshBiometry();
+      return;
+    }
+    setBioPinOpen(true);
+  }
 
   async function doWipe() {
     if (
@@ -91,8 +121,28 @@ export function SettingsPage() {
         <Row
           icon="finger"
           label="Biometría"
-          value="ver F13"
-          subtle="disponible al subir a Capacitor 8"
+          value={
+            bioStatus == null
+              ? '…'
+              : !bioStatus.isAvailable
+                ? 'NO DISP.'
+                : bioStatus.hasSavedPin
+                  ? 'ACTIVA'
+                  : 'DESACTIVADA'
+          }
+          subtle={
+            bioStatus == null
+              ? 'comprobando...'
+              : !bioStatus.isAvailable
+                ? bioStatus.reason === 'not-supported'
+                  ? 'solo disponible en Android/iOS nativo'
+                  : 'no configurada en el dispositivo'
+                : bioStatus.hasSavedPin
+                  ? 'toca para desactivar'
+                  : 'toca para activar con tu PIN actual'
+          }
+          onClick={bioStatus?.isAvailable ? () => void onBiometryToggle() : undefined}
+          testId="set-biometry"
         />
 
         <SectionHeader label="DATOS" />
@@ -180,6 +230,12 @@ export function SettingsPage() {
           RESET
         </Btn>
       </Sheet>
+
+      <BiometryEnableSheet
+        open={bioPinOpen}
+        onClose={() => setBioPinOpen(false)}
+        onActivated={() => void refreshBiometry()}
+      />
 
       <Sheet open={dashboardOpen} onClose={() => setDashboardOpen(false)} title="Modo Dashboard">
         <div className="space-y-2">
@@ -367,6 +423,83 @@ function ChangePinSheet({ open, onClose }: { open: boolean; onClose: () => void 
           </Btn>
         </div>
       )}
+    </Sheet>
+  );
+}
+
+function BiometryEnableSheet({
+  open,
+  onClose,
+  onActivated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onActivated: () => void;
+}) {
+  const unlock = useLock((s) => s.unlock);
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function reset() {
+    setPin('');
+    setError(null);
+    setBusy(false);
+  }
+
+  async function submit(): Promise<void> {
+    setError(null);
+    setBusy(true);
+    try {
+      // Verify the PIN unlocks the vault before trusting it to the keystore.
+      // We do NOT relock afterwards: the user is already inside SettingsPage
+      // so status=unlocked is consistent with their current session.
+      const ok = await unlock(pin);
+      if (!ok) {
+        setError('PIN incorrecto.');
+        setBusy(false);
+        return;
+      }
+      const activated = await enableBiometry(pin);
+      if (!activated) {
+        setError('No se pudo activar la biometría.');
+        setBusy(false);
+        return;
+      }
+      onActivated();
+      reset();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onClose={() => {
+        reset();
+        onClose();
+      }}
+      title="Activar biometría"
+    >
+      <div className="space-y-3">
+        <p className="font-mono text-mono10 text-dim text-center">
+          Introduce tu PIN para guardarlo cifrado en el keystore del sistema.
+        </p>
+        <PinPad value={pin} onChange={setPin} />
+        {error && <p className="font-mono text-mono10 text-danger text-center">{error}</p>}
+        <Btn
+          variant="solid"
+          block
+          onClick={() => void submit()}
+          disabled={pin.length < 4 || busy}
+          data-testid="biometry-enable-submit"
+        >
+          {busy ? 'VERIFICANDO…' : 'ACTIVAR'}
+        </Btn>
+      </div>
     </Sheet>
   );
 }

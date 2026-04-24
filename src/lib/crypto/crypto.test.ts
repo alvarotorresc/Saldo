@@ -153,23 +153,19 @@ describe('storage (web fallback)', () => {
   });
 });
 
-describe('biometric web shim (jsdom)', () => {
-  it('reports isAvailable=true on the Capacitor web shim and round-trips enable→authenticate', async () => {
+describe('biometric web gate (S-ALTO-002)', () => {
+  it('reports not-supported on web and refuses to accept credentials', async () => {
     const { getBiometryStatus, enableBiometry, authenticateBiometry, disableBiometry } =
       await import('./biometric');
-    // Ensure clean state across test runs (shim uses in-memory Map).
-    await disableBiometry();
 
     const status = await getBiometryStatus();
-    expect(status.isAvailable).toBe(true);
+    expect(status.isAvailable).toBe(false);
     expect(status.hasSavedPin).toBe(false);
+    expect(status.reason).toBe('not-supported');
 
-    expect(await enableBiometry('123456')).toBe(true);
-    const afterEnable = await getBiometryStatus();
-    expect(afterEnable.hasSavedPin).toBe(true);
-    expect(await authenticateBiometry()).toBe('123456');
-
-    await disableBiometry();
+    expect(await enableBiometry('123456')).toBe(false);
     expect(await authenticateBiometry()).toBe(false);
+    // disableBiometry is idempotent; calling it on the web must not throw.
+    await expect(disableBiometry()).resolves.toBeUndefined();
   });
 });

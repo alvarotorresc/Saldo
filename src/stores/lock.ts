@@ -22,12 +22,34 @@ import {
   enableBiometry,
   getBiometryStatus,
 } from '@/lib/crypto';
+import { db } from '@/db/database';
 
 export type LockStatus = 'booting' | 'welcome' | 'setup' | 'locked' | 'unlocked';
 
 export const DEFAULT_AUTO_LOCK_MS = 30_000;
 export const LOCKOUT_MS = 30_000;
 export const LOCKOUT_THRESHOLD = 3;
+export const AUTO_LOCK_META_KEY = 'autoLockMs';
+
+async function loadAutoLockMs(): Promise<number | null> {
+  try {
+    const row = await db.meta.get(AUTO_LOCK_META_KEY);
+    if (!row?.value) return null;
+    const n = Number(row.value);
+    return Number.isFinite(n) && n >= 1000 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+async function persistAutoLockMs(ms: number): Promise<void> {
+  try {
+    await db.meta.put({ key: AUTO_LOCK_META_KEY, value: String(ms) });
+  } catch {
+    // meta table unavailable (e.g. DB closed mid-shutdown); in-memory value
+    // stays correct for this session, next boot falls back to default.
+  }
+}
 
 export interface LockState {
   status: LockStatus;
@@ -58,6 +80,13 @@ export const useLock = create<LockState>((set, get) => ({
   autoLockMs: DEFAULT_AUTO_LOCK_MS,
 
   async boot() {
+    // Hydrate autoLockMs from db.meta (plaintext setting, not in the encrypted
+    // snapshot). Without this, Settings "lies": the user picks 5m, reloads and
+    // sees 30s again.
+    const persistedAutoLock = await loadAutoLockMs();
+    if (persistedAutoLock !== null) {
+      set({ autoLockMs: persistedAutoLock });
+    }
     const vault = await loadVault();
     if (!vault) {
       set({ status: 'welcome' });
@@ -166,7 +195,9 @@ export const useLock = create<LockState>((set, get) => ({
   },
 
   setAutoLockMs(ms: number) {
-    set({ autoLockMs: Math.max(1000, ms) });
+    const next = Math.max(1000, ms);
+    set({ autoLockMs: next });
+    void persistAutoLockMs(next);
   },
 
   registerActivity() {
@@ -189,6 +220,14 @@ export const useLock = create<LockState>((set, get) => ({
       await wipeTables();
     } catch (e) {
       console.error('wipeVault: wipeTables failed', e);
+    }
+    // Settings in db.meta are kept plaintext (not in the encrypted snapshot)
+    // so they survive lock/unlock; wipeVault is the only place that should
+    // clear them.
+    try {
+      await db.meta.clear();
+    } catch (e) {
+      console.error('wipeVault: meta.clear failed', e);
     }
     try {
       await disableBiometry();

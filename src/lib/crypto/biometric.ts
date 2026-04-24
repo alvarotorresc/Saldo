@@ -15,9 +15,18 @@
  * PIN-only.
  */
 import { NativeBiometric } from '@capgo/capacitor-native-biometric';
+import { Capacitor } from '@capacitor/core';
 
 const SERVER = 'saldo@local';
 const USERNAME = 'saldo-pin';
+
+function isNative(): boolean {
+  try {
+    return Capacitor.isNativePlatform();
+  } catch {
+    return false;
+  }
+}
 
 export interface BiometryStatus {
   isAvailable: boolean;
@@ -48,6 +57,14 @@ function mapBiometryKind(type: number): BiometryStatus['kind'] {
 }
 
 export async function getBiometryStatus(): Promise<BiometryStatus> {
+  // Biometry is a native-only feature. The @capgo web shim exposes a no-op
+  // that stores the PIN in a JS Map — an XSS payload or hostile extension
+  // could extract it without any fingerprint prompt. Gate the whole surface
+  // on Capacitor.isNativePlatform() so web users never see a toggle that
+  // silently weakens their security.
+  if (!isNative()) {
+    return { isAvailable: false, hasSavedPin: false, reason: 'not-supported' };
+  }
   try {
     const res = await NativeBiometric.isAvailable({ useFallback: true });
     if (!res.isAvailable) {
@@ -76,6 +93,7 @@ export async function getBiometryStatus(): Promise<BiometryStatus> {
 }
 
 export async function enableBiometry(pin: string): Promise<boolean> {
+  if (!isNative()) return false;
   try {
     await NativeBiometric.verifyIdentity({
       reason: 'Activar desbloqueo biométrico',
@@ -94,6 +112,7 @@ export async function enableBiometry(pin: string): Promise<boolean> {
 }
 
 export async function authenticateBiometry(): Promise<string | false> {
+  if (!isNative()) return false;
   try {
     await NativeBiometric.verifyIdentity({
       reason: 'Desbloquear Saldo',
@@ -108,6 +127,7 @@ export async function authenticateBiometry(): Promise<string | false> {
 }
 
 export async function disableBiometry(): Promise<void> {
+  if (!isNative()) return;
   try {
     await NativeBiometric.deleteCredentials({ server: SERVER });
   } catch {
