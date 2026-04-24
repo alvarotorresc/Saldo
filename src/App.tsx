@@ -227,7 +227,7 @@ export default function App() {
       },
     },
     { id: 'settings', label: 'Settings', onRun: () => setTab('settings') },
-    { id: 'lock', label: 'Lock now', onRun: () => useLock.getState().lock() },
+    { id: 'lock', label: 'Lock now', onRun: () => void useLock.getState().lock() },
   ];
 
   return (

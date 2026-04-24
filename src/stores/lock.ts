@@ -11,6 +11,9 @@ import {
   wrapMasterKey,
   bytesToBase64,
   base64ToBytes,
+  clearEncryptedSnapshot,
+  decryptAndRestore,
+  encryptAndWipe,
 } from '@/lib/crypto';
 
 export type LockStatus = 'booting' | 'welcome' | 'setup' | 'locked' | 'unlocked';
@@ -29,7 +32,7 @@ export interface LockState {
   boot(): Promise<void>;
   setupPin(pin: string): Promise<void>;
   unlock(pin: string): Promise<boolean>;
-  lock(): void;
+  lock(): Promise<void>;
   setAutoLockMs(ms: number): void;
   registerActivity(): void;
   wipeVault(): Promise<void>;
@@ -83,6 +86,17 @@ export const useLock = create<LockState>((set, get) => ({
     }
     try {
       const master = await unwrapMasterKey(vault.wrappedKey, vault.wrapIv, pinKey);
+      // If we have a previously-encrypted snapshot, decrypt and restore Dexie
+      // before surfacing the unlocked state to the UI. First-setup unlocks
+      // leave Dexie untouched because no snapshot exists yet.
+      try {
+        await decryptAndRestore(master);
+      } catch (e) {
+        // Corrupt or mismatched payload: abort the unlock to avoid exposing
+        // stale/plaintext tables. Signals to the UI that the vault is bad.
+        console.error('decryptAndRestore failed', e);
+        return false;
+      }
       set({
         master,
         status: 'unlocked',
@@ -102,7 +116,23 @@ export const useLock = create<LockState>((set, get) => ({
     }
   },
 
-  lock() {
+  async lock() {
+    const { master } = get();
+    if (master) {
+      try {
+        await encryptAndWipe(master);
+      } catch (e) {
+        // Abort the lock only when the failure would leave plaintext at rest.
+        // A missing IndexedDB (e.g. in tests) means there is nothing to wipe,
+        // so we can safely proceed with the in-memory lock.
+        const msg = e instanceof Error ? e.message : String(e);
+        const isMissingIdb = /IndexedDB API missing|indexedDB is not defined/i.test(msg);
+        if (!isMissingIdb) {
+          console.error('encryptAndWipe failed', e);
+          return;
+        }
+      }
+    }
     set({ master: null, status: 'locked' });
   },
 
@@ -116,6 +146,7 @@ export const useLock = create<LockState>((set, get) => ({
 
   async wipeVault() {
     await clearVault();
+    clearEncryptedSnapshot();
     set({
       master: null,
       status: 'welcome',
@@ -159,13 +190,13 @@ export function installAutoLock(nowFn: () => number = Date.now): () => void {
     const s = useLock.getState();
     if (s.status !== 'unlocked') return;
     if (nowFn() - s.lastActivityAt >= s.autoLockMs) {
-      s.lock();
+      void s.lock();
     }
   };
   const onVisibility = () => {
     const s = useLock.getState();
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-      if (s.status === 'unlocked') s.lock();
+      if (s.status === 'unlocked') void s.lock();
     }
   };
   const onActivity = () => {

@@ -62,7 +62,7 @@ describe('lock store unlock', () => {
 
   it('accepts correct PIN and restores master', async () => {
     await useLock.getState().setupPin('12345');
-    useLock.getState().lock();
+    await useLock.getState().lock();
     const ok = await useLock.getState().unlock('12345');
     expect(ok).toBe(true);
     expect(useLock.getState().master).not.toBeNull();
@@ -71,7 +71,7 @@ describe('lock store unlock', () => {
 
   it('rejects wrong PIN and increments failedAttempts', async () => {
     await useLock.getState().setupPin('12345');
-    useLock.getState().lock();
+    await useLock.getState().lock();
     const ok = await useLock.getState().unlock('00000');
     expect(ok).toBe(false);
     expect(useLock.getState().failedAttempts).toBe(1);
@@ -80,7 +80,7 @@ describe('lock store unlock', () => {
 
   it('triggers lockout after N consecutive failures', async () => {
     await useLock.getState().setupPin('12345');
-    useLock.getState().lock();
+    await useLock.getState().lock();
     for (let i = 0; i < LOCKOUT_THRESHOLD; i += 1) {
       await useLock.getState().unlock('00000');
     }
@@ -91,7 +91,7 @@ describe('lock store unlock', () => {
 
   it('refuses unlock while locked out even with correct PIN', async () => {
     await useLock.getState().setupPin('12345');
-    useLock.getState().lock();
+    await useLock.getState().lock();
     for (let i = 0; i < LOCKOUT_THRESHOLD; i += 1) {
       await useLock.getState().unlock('00000');
     }
@@ -101,7 +101,7 @@ describe('lock store unlock', () => {
 
   it('clears attempts on successful unlock', async () => {
     await useLock.getState().setupPin('12345');
-    useLock.getState().lock();
+    await useLock.getState().lock();
     await useLock.getState().unlock('00000');
     expect(useLock.getState().failedAttempts).toBe(1);
     await useLock.getState().unlock('12345');
@@ -115,7 +115,7 @@ describe('lock store lock + activity', () => {
 
   it('lock() clears master and sets status', async () => {
     await useLock.getState().setupPin('12345');
-    useLock.getState().lock();
+    await useLock.getState().lock();
     expect(useLock.getState().master).toBeNull();
     expect(useLock.getState().status).toBe('locked');
   });

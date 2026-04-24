@@ -32,3 +32,10 @@ export {
   disableBiometry,
   type BiometryStatus,
 } from './biometric';
+export {
+  hasEncryptedSnapshot,
+  clearEncryptedSnapshot,
+  buildSnapshot as buildVaultSnapshot,
+  encryptAndWipe,
+  decryptAndRestore,
+} from './atRest';
