@@ -7,6 +7,9 @@ dist/
 vite.config.d.ts
 vite.config.js
 
+# Test coverage reports
+coverage/
+
 # Android build
 android/.gradle/
 android/build/

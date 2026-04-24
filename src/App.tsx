@@ -3,7 +3,6 @@ import type { ErrorInfo, ReactNode } from 'react';
 import { seedIfEmpty } from '@/db/database';
 import { BottomNav, type Tab } from '@/ui/BottomNav';
 import { DashboardPage } from '@/pages/DashboardPage';
-import { TransactionsPage } from '@/pages/TransactionsPage';
 import { LedgerPage } from '@/pages/LedgerPage';
 import { TxDetailPage } from '@/pages/TxDetailPage';
 import { NewTxPage } from '@/pages/NewTxPage';
@@ -17,16 +16,14 @@ import { MorePage, type MoreSection } from '@/pages/MorePage';
 import { GoalsPage } from '@/pages/GoalsPage';
 import { SubscriptionsPage } from '@/pages/SubscriptionsPage';
 import { LoansPage } from '@/pages/LoansPage';
-import { ChartsPage } from '@/pages/ChartsPage';
-import { WealthPage } from '@/pages/WealthPage';
 import { NetWorthPage } from '@/pages/NetWorthPage';
 import { ExportPage } from '@/pages/ExportPage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { CategoriesPage } from '@/pages/CategoriesPage';
-import { ForecastPage } from '@/pages/ForecastPage';
 import { BudgetsPage } from '@/pages/BudgetsPage';
 import { RulesPage } from '@/pages/RulesPage';
 import { useLock, installAutoLock } from '@/stores/lock';
+import { useMeta } from '@/stores/meta';
 import { OnboardingFlow } from '@/app/OnboardingFlow';
 import { LockPage } from '@/pages/onboarding/LockPage';
 
@@ -183,10 +180,10 @@ export default function App() {
     },
     {
       id: 'go-charts',
-      label: 'Charts',
+      label: 'Dashboard charts mode',
       onRun: () => {
-        setTab('more');
-        setMoreSection('charts');
+        setTab('home');
+        void useMeta.getState().setDashboardMode('charts');
       },
     },
     {
@@ -264,8 +261,8 @@ export default function App() {
                       setMoreSection('subscriptions');
                     }}
                     onGoCharts={() => {
-                      setTab('more');
-                      setMoreSection('charts');
+                      setTab('home');
+                      void useMeta.getState().setDashboardMode('charts');
                     }}
                   />
                 )}
@@ -276,8 +273,6 @@ export default function App() {
                     onNewTx={() => setNewTxOpen(true)}
                   />
                 )}
-                {/* TransactionsPage kept for regression fallback until F9 purge */}
-                {false && <TransactionsPage />}
                 {tab === 'import' && <ImportPage />}
                 {tab === 'more' &&
                   (moreSection == null ? (
@@ -288,14 +283,10 @@ export default function App() {
                     <SubscriptionsPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'loans' ? (
                     <LoansPage onBack={() => setMoreSection(null)} />
-                  ) : moreSection === 'charts' ? (
-                    <ChartsPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'wealth' ? (
                     <NetWorthPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'categories' ? (
                     <CategoriesPage onBack={() => setMoreSection(null)} />
-                  ) : moreSection === 'forecast' ? (
-                    <ForecastPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'budgets' ? (
                     <BudgetsPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'rules' ? (

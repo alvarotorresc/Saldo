@@ -1,15 +1,12 @@
-import { TopBar } from '@/ui/TopBar';
-import { Card } from '@/ui/Card';
+import { TopBarV2 } from '@/ui/TopBarV2';
 import { Icon, type IconName } from '@/ui/Icon';
 
 export type MoreSection =
   | 'goals'
   | 'subscriptions'
   | 'loans'
-  | 'charts'
   | 'wealth'
   | 'categories'
-  | 'forecast'
   | 'budgets'
   | 'rules'
   | 'export'
@@ -21,115 +18,91 @@ interface Props {
 
 interface Entry {
   key: MoreSection;
-  title: string;
-  subtitle: string;
+  label: string;
+  sub: string;
   icon: IconName;
   color: string;
 }
 
 const ENTRIES: Entry[] = [
   {
-    key: 'charts',
-    title: 'Gráficas',
-    subtitle: 'Ahorro, ingresos y gastos',
-    icon: 'chart',
-    color: '#60A5FA',
-  },
-  {
-    key: 'subscriptions',
-    title: 'Suscripciones',
-    subtitle: 'Renovaciones y coste total',
-    icon: 'repeat',
-    color: '#818CF8',
-  },
-  {
-    key: 'loans',
-    title: 'Préstamos',
-    subtitle: 'Amortización y cuotas',
-    icon: 'bank',
-    color: '#F59E0B',
-  },
-  {
-    key: 'goals',
-    title: 'Metas de ahorro',
-    subtitle: 'Objetivos con progreso',
-    icon: 'target',
-    color: '#10B981',
-  },
-  {
-    key: 'wealth',
-    title: 'Patrimonio',
-    subtitle: 'Saldos y evolución',
-    icon: 'wallet',
-    color: '#34D399',
-  },
-  {
-    key: 'forecast',
-    title: 'Previsión 30 días',
-    subtitle: 'Cash flow estimado',
-    icon: 'trending-up',
-    color: '#FB7185',
-  },
-  {
-    key: 'categories',
-    title: 'Categorías',
-    subtitle: 'Editar grupos y categorías',
-    icon: 'folder',
-    color: '#A78BFA',
-  },
-  {
-    key: 'budgets',
-    title: 'Presupuestos',
-    subtitle: 'Límites por categoría',
-    icon: 'target',
-    color: '#F472B6',
-  },
-  {
-    key: 'rules',
-    title: 'Reglas',
-    subtitle: 'Auto-categorización',
-    icon: 'flow',
-    color: '#60A5FA',
-  },
-  {
     key: 'analytics',
-    title: 'Analytics',
-    subtitle: '12M YoY + merchants',
+    label: 'ANALYTICS',
+    sub: '12M / YoY / merchants',
     icon: 'pie',
     color: '#34D399',
   },
   {
-    key: 'export',
-    title: 'Export',
-    subtitle: 'Guarda snapshot .saldo',
-    icon: 'download',
+    key: 'wealth',
+    label: 'NET_WORTH',
+    sub: 'assets − liabilities',
+    icon: 'wallet',
+    color: '#10B981',
+  },
+  {
+    key: 'budgets',
+    label: 'BUDGETS',
+    sub: 'límites por categoría',
+    icon: 'target',
+    color: '#F472B6',
+  },
+  {
+    key: 'categories',
+    label: 'CATEGORIES',
+    sub: 'grupos + categorías',
+    icon: 'folder',
     color: '#A78BFA',
+  },
+  { key: 'rules', label: 'RULES', sub: 'auto-categorize', icon: 'flow', color: '#60A5FA' },
+  {
+    key: 'subscriptions',
+    label: 'SUBS',
+    sub: 'renovaciones y coste',
+    icon: 'repeat',
+    color: '#818CF8',
+  },
+  { key: 'loans', label: 'LOANS', sub: 'amortización y cuotas', icon: 'bank', color: '#F59E0B' },
+  { key: 'goals', label: 'GOALS', sub: 'objetivos con progreso', icon: 'target', color: '#34D399' },
+  {
+    key: 'export',
+    label: 'EXPORT',
+    sub: '.saldo / .csv / .ofx / .pdf',
+    icon: 'download',
+    color: '#8A8A93',
   },
 ];
 
 export function MorePage({ onOpen }: Props) {
   return (
     <>
-      <TopBar title="Más" subtitle="Herramientas y vistas" />
-      <div className="scroll-area flex-1 px-4 pb-6">
-        <div className="grid grid-cols-2 gap-3">
+      <TopBarV2 title="saldo@local" sub="MORE" />
+      <div className="scroll-area flex-1 pb-6" data-testid="more-page">
+        <ul className="divide-y divide-border">
           {ENTRIES.map((e) => (
-            <button key={e.key} onClick={() => onOpen(e.key)} className="press text-left">
-              <Card className="h-32 flex flex-col justify-between">
-                <div
-                  className="w-9 h-9 rounded-full grid place-items-center"
-                  style={{ background: e.color + '22', color: e.color }}
+            <li key={e.key}>
+              <button
+                type="button"
+                onClick={() => onOpen(e.key)}
+                className="w-full flex items-center gap-3 px-3.5 py-3 press text-left"
+                data-testid={`more-${e.key}`}
+              >
+                <span
+                  className="w-[26px] h-[26px] border border-borderStrong rounded-xs grid place-items-center shrink-0"
+                  style={{ color: e.color }}
                 >
-                  <Icon name={e.icon} size={18} />
+                  <Icon name={e.icon} size={13} stroke={1.6} />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-mono text-mono11 text-text tracking-wide">{e.label}</div>
+                  <div className="font-mono text-mono9 text-dim tracking-wide mt-0.5 truncate">
+                    {e.sub}
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold leading-tight">{e.title}</p>
-                  <p className="text-[11px] text-muted mt-0.5 leading-snug">{e.subtitle}</p>
-                </div>
-              </Card>
-            </button>
+                <Icon name="chev-r" size={12} className="text-dim shrink-0" />
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
       </div>
     </>
   );
