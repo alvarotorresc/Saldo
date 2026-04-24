@@ -18,6 +18,7 @@ import { SubscriptionsPage } from '@/pages/SubscriptionsPage';
 import { LoansPage } from '@/pages/LoansPage';
 import { ChartsPage } from '@/pages/ChartsPage';
 import { WealthPage } from '@/pages/WealthPage';
+import { NetWorthPage } from '@/pages/NetWorthPage';
 import { CategoriesPage } from '@/pages/CategoriesPage';
 import { ForecastPage } from '@/pages/ForecastPage';
 import { BudgetsPage } from '@/pages/BudgetsPage';
@@ -280,7 +281,7 @@ export default function App() {
                   ) : moreSection === 'charts' ? (
                     <ChartsPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'wealth' ? (
-                    <WealthPage onBack={() => setMoreSection(null)} />
+                    <NetWorthPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'categories' ? (
                     <CategoriesPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'forecast' ? (
