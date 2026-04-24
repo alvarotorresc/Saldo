@@ -1,126 +1,179 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseSnapshot, type SaldoSnapshot } from '@/lib/saldoFile';
+import { db } from '@/db/database';
+import { resetDb } from '@/test/resetDb';
 import { generateMasterKey } from './key';
 import { encryptPayload } from './vault';
+import {
+  buildSnapshot,
+  clearEncryptedSnapshot,
+  decryptAndRestore,
+  encryptAndWipe,
+  hasEncryptedSnapshot,
+  hasPlaintextData,
+} from './atRest';
 
-// Mock Dexie so atRest.ts can drive buildSnapshot / wipeTables / restore
-// without a real IndexedDB. Each table exposes a tiny in-memory array plus
-// the minimum API surface atRest.ts uses.
-interface FakeTable<T> {
-  _rows: T[];
-  toArray(): Promise<T[]>;
-  clear(): Promise<void>;
-  bulkAdd(rows: T[]): Promise<void>;
-}
+const PRIMARY_KEY = 'saldo.vaultPayload';
+const BACKUP_KEY = 'saldo.vaultPayloadBackup';
 
-function table<T>(): FakeTable<T> {
-  return {
-    _rows: [],
-    async toArray() {
-      return this._rows;
-    },
-    async clear() {
-      this._rows = [];
-    },
-    async bulkAdd(rows) {
-      this._rows.push(...rows);
-    },
-  };
-}
+beforeEach(async () => {
+  localStorage.clear();
+  await resetDb();
+});
 
-const fakeDb = {
-  transactions: table<unknown>(),
-  accounts: table<unknown>(),
-  categories: table<unknown>(),
-  categoryGroups: table<unknown>(),
-  budgets: table<unknown>(),
-  goals: table<unknown>(),
-  loans: table<unknown>(),
-  rules: table<unknown>(),
-  subscriptions: table<unknown>(),
-  recurring: table<unknown>(),
-  balances: table<unknown>(),
-  txTombstones: table<unknown>(),
-  async transaction(_mode: 'rw', _tables: unknown, fn: () => Promise<void>) {
-    await fn();
-  },
-};
-
-vi.mock('@/db/database', () => ({ db: fakeDb }));
-
-const atRest = await import('./atRest');
-
-beforeEach(() => {
-  Object.values(fakeDb).forEach((t) => {
-    if (t && typeof (t as FakeTable<unknown>).clear === 'function') {
-      (t as FakeTable<unknown>)._rows = [];
-    }
-  });
+afterEach(() => {
   localStorage.clear();
 });
 
 describe('atRest.encryptAndWipe + decryptAndRestore', () => {
   it('round-trips a snapshot through localStorage and Dexie tables', async () => {
-    // Seed some plaintext data.
-    (fakeDb.accounts as FakeTable<unknown>)._rows = [
-      { id: 1, name: 'Cuenta principal', bank: 'manual', currency: 'EUR', createdAt: 0 },
-    ];
-    (fakeDb.transactions as FakeTable<unknown>)._rows = [
-      {
-        id: 1,
-        accountId: 1,
-        date: '2026-04-01',
-        amount: 10,
-        kind: 'expense',
-        description: 'Lidl',
-        month: '2026-04',
-        createdAt: 0,
-      },
-    ];
+    const accountId = await db.accounts.add({
+      name: 'Cuenta principal',
+      bank: 'manual',
+      currency: 'EUR',
+      createdAt: 0,
+    });
+    await db.transactions.add({
+      accountId: accountId as number,
+      date: '2026-04-01',
+      amount: 10,
+      kind: 'expense',
+      description: 'Lidl',
+      month: '2026-04',
+      createdAt: 0,
+    });
 
     const master = await generateMasterKey();
-    await atRest.encryptAndWipe(master);
+    await encryptAndWipe(master);
 
-    // Dexie cleared, localStorage populated.
-    expect((fakeDb.accounts as FakeTable<unknown>)._rows).toHaveLength(0);
-    expect((fakeDb.transactions as FakeTable<unknown>)._rows).toHaveLength(0);
-    expect(atRest.hasEncryptedSnapshot()).toBe(true);
+    expect(await db.accounts.count()).toBe(0);
+    expect(await db.transactions.count()).toBe(0);
+    expect(hasEncryptedSnapshot()).toBe(true);
 
-    // Restore into an empty DB.
-    const ok = await atRest.decryptAndRestore(master);
+    const ok = await decryptAndRestore(master);
     expect(ok).toBe(true);
-    expect((fakeDb.accounts as FakeTable<unknown>)._rows).toHaveLength(1);
-    expect((fakeDb.transactions as FakeTable<unknown>)._rows).toHaveLength(1);
+    expect(await db.accounts.count()).toBe(1);
+    expect(await db.transactions.count()).toBe(1);
   });
 
   it('returns false when no snapshot is present (first unlock)', async () => {
     const master = await generateMasterKey();
-    expect(await atRest.decryptAndRestore(master)).toBe(false);
+    expect(await decryptAndRestore(master)).toBe(false);
   });
 
   it('throws on checksum mismatch to prevent silent corruption', async () => {
     const master = await generateMasterKey();
-    // Hand-craft a ciphertext with a bogus sha.
     const bytes = new TextEncoder().encode('{"corrupt":true}');
     const payload = await encryptPayload(bytes, master);
-    localStorage.setItem('saldo.vaultPayload', JSON.stringify({ ...payload, sha: 'AAAA' }));
-    await expect(atRest.decryptAndRestore(master)).rejects.toThrow(
-      /Checksum|valid JSON|Unsupported/,
-    );
+    localStorage.setItem(PRIMARY_KEY, JSON.stringify({ ...payload, sha: 'AAAA' }));
+    await expect(decryptAndRestore(master)).rejects.toThrow(/Checksum|valid JSON|Unsupported/);
   });
 
   it('clearEncryptedSnapshot wipes both current and backup entries', () => {
-    localStorage.setItem('saldo.vaultPayload', 'x');
-    localStorage.setItem('saldo.vaultPayloadBackup', 'y');
-    atRest.clearEncryptedSnapshot();
-    expect(localStorage.getItem('saldo.vaultPayload')).toBeNull();
-    expect(localStorage.getItem('saldo.vaultPayloadBackup')).toBeNull();
+    localStorage.setItem(PRIMARY_KEY, 'x');
+    localStorage.setItem(BACKUP_KEY, 'y');
+    clearEncryptedSnapshot();
+    expect(localStorage.getItem(PRIMARY_KEY)).toBeNull();
+    expect(localStorage.getItem(BACKUP_KEY)).toBeNull();
+  });
+});
+
+// GAP-003 — round-trip exhaustivo
+describe('atRest — GAP-003 edge cases', () => {
+  it('preserves txTombstones across encrypt-wipe-decrypt-restore', async () => {
+    await db.txTombstones.add({ txHash: 'abc123', deletedAt: 1700000000000 });
+    const master = await generateMasterKey();
+    await encryptAndWipe(master);
+    expect(await db.txTombstones.count()).toBe(0);
+    await decryptAndRestore(master);
+    const rows = await db.txTombstones.toArray();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.txHash).toBe('abc123');
+    expect(rows[0]!.deletedAt).toBe(1700000000000);
+  });
+
+  it('preserves db.recurring across the round-trip (C-BLK-001 regression)', async () => {
+    await db.recurring.add({
+      signature: 'netflix',
+      averageAmount: 12.99,
+      cadenceDays: 30,
+      lastSeen: '2026-04-01',
+      sampleCount: 6,
+      kind: 'expense',
+    });
+    const master = await generateMasterKey();
+    await encryptAndWipe(master);
+    expect(await db.recurring.count()).toBe(0);
+    await decryptAndRestore(master);
+    const rows = await db.recurring.toArray();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.signature).toBe('netflix');
+    expect(rows[0]!.averageAmount).toBeCloseTo(12.99);
+  });
+
+  it('keeps the previous ciphertext as backup when encryptAndWipe runs twice', async () => {
+    const master = await generateMasterKey();
+    await db.accounts.add({ name: 'A', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    await encryptAndWipe(master);
+    const first = localStorage.getItem(PRIMARY_KEY);
+    expect(first).not.toBeNull();
+    expect(localStorage.getItem(BACKUP_KEY)).toBeNull();
+
+    // simulate a new session — restore and lock again.
+    await decryptAndRestore(master);
+    await db.accounts.add({ name: 'B', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    await encryptAndWipe(master);
+
+    expect(localStorage.getItem(BACKUP_KEY)).toBe(first);
+    expect(localStorage.getItem(PRIMARY_KEY)).not.toBe(first);
+  });
+
+  it('throws "vault snapshot corrupt (JSON)" when primary is not valid JSON', async () => {
+    localStorage.setItem(PRIMARY_KEY, 'not-json-at-all');
+    const master = await generateMasterKey();
+    await expect(decryptAndRestore(master)).rejects.toThrow(/corrupt|JSON/);
+  });
+
+  it('falls back to BACKUP_KEY when primary checksum fails (S-MEDIO-003)', async () => {
+    const master = await generateMasterKey();
+    await db.accounts.add({ name: 'OK', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    await encryptAndWipe(master);
+    // at this point PRIMARY holds the good payload and BACKUP is empty.
+    // Fake a second gen: snapshot the primary as backup, then tamper with primary.
+    const goodPayload = localStorage.getItem(PRIMARY_KEY)!;
+    localStorage.setItem(BACKUP_KEY, goodPayload);
+    const parsed = JSON.parse(goodPayload);
+    localStorage.setItem(PRIMARY_KEY, JSON.stringify({ ...parsed, sha: 'AAAA' }));
+
+    const ok = await decryptAndRestore(master);
+    expect(ok).toBe(true);
+    const accounts = await db.accounts.toArray();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]!.name).toBe('OK');
+  });
+
+  it('buildSnapshot is stable — empty DB produces an array for every table', async () => {
+    const snap = await buildSnapshot();
+    expect(snap.version).toBe(2);
+    expect(Array.isArray(snap.accounts)).toBe(true);
+    expect(Array.isArray(snap.recurring)).toBe(true);
+    expect(Array.isArray(snap.txTombstones)).toBe(true);
+  });
+});
+
+describe('hasPlaintextData', () => {
+  it('is false on a fresh DB', async () => {
+    expect(await hasPlaintextData()).toBe(false);
+  });
+
+  it('becomes true as soon as any tracked table has a row', async () => {
+    await db.accounts.add({ name: 'X', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    expect(await hasPlaintextData()).toBe(true);
   });
 });
 
 describe('parseSnapshot shape', () => {
   it('is still callable after atRest loads (no cyclic import)', () => {
-    // Sanity that our imports didn't break module init.
     const s: SaldoSnapshot = parseSnapshot(
       JSON.stringify({
         version: 2,

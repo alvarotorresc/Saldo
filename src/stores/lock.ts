@@ -14,8 +14,13 @@ import {
   clearEncryptedSnapshot,
   decryptAndRestore,
   encryptAndWipe,
+  hasEncryptedSnapshot,
+  hasPlaintextData,
+  wipeTables,
   authenticateBiometry,
   disableBiometry,
+  enableBiometry,
+  getBiometryStatus,
 } from '@/lib/crypto';
 
 export type LockStatus = 'booting' | 'welcome' | 'setup' | 'locked' | 'unlocked';
@@ -58,6 +63,19 @@ export const useLock = create<LockState>((set, get) => ({
       set({ status: 'welcome' });
       return;
     }
+    // Hard-kill recovery: if there's a vault but Dexie still holds plaintext
+    // rows, the process died mid-session without a clean lock(). Wipe the
+    // plaintext so an attacker with physical access cannot read it through
+    // DevTools/IndexedDB viewer. The user will lose uncommitted session data
+    // (only what was written since the last lock) but the encrypted snapshot
+    // restored on unlock preserves everything up to the previous lock.
+    try {
+      if (hasEncryptedSnapshot() && (await hasPlaintextData())) {
+        await wipeTables();
+      }
+    } catch (e) {
+      console.error('boot: hard-kill recovery failed', e);
+    }
     // Vault exists: always require unlock on every boot, even if the tab was
     // in-memory before (hard reload must clear master).
     set({ status: 'locked', master: null });
@@ -70,6 +88,17 @@ export const useLock = create<LockState>((set, get) => ({
     const master = await generateMasterKey();
     const { wrapped, iv } = await wrapMasterKey(master, pinKey);
     await saveVaultMeta(wrapped, iv, bytesToBase64(salt));
+    // Establish a baseline encrypted snapshot so hasEncryptedSnapshot() is true
+    // from the moment setup completes. Without this, a hard-kill between
+    // setupPin() and the first lock() leaves the vault without any encrypted
+    // state, which boot() cannot distinguish from "fresh install".
+    try {
+      await encryptAndWipe(master);
+    } catch (e) {
+      // Web-only tests without localStorage or IndexedDB fall back to plain
+      // in-memory state. We still set the master so the UI can progress.
+      console.warn('setupPin: baseline encryptAndWipe skipped', e);
+    }
     set({ master, status: 'unlocked', failedAttempts: 0, lastActivityAt: Date.now() });
   },
 
@@ -125,15 +154,12 @@ export const useLock = create<LockState>((set, get) => ({
       try {
         await encryptAndWipe(master);
       } catch (e) {
-        // Abort the lock only when the failure would leave plaintext at rest.
-        // A missing IndexedDB (e.g. in tests) means there is nothing to wipe,
-        // so we can safely proceed with the in-memory lock.
-        const msg = e instanceof Error ? e.message : String(e);
-        const isMissingIdb = /IndexedDB API missing|indexedDB is not defined/i.test(msg);
-        if (!isMissingIdb) {
-          console.error('encryptAndWipe failed', e);
-          return;
-        }
+        // localStorage unavailable or Dexie broken: surface the failure but
+        // still drop the master from memory. The UI promised to lock; keeping
+        // the master alive would be a lie. We accept that plaintext may remain
+        // in Dexie (unavoidable without localStorage) and rely on boot()'s
+        // hard-kill recovery to clear it on next launch.
+        console.error('encryptAndWipe failed; dropping master anyway', e);
       }
     }
     set({ master: null, status: 'locked' });
@@ -154,9 +180,23 @@ export const useLock = create<LockState>((set, get) => ({
   },
 
   async wipeVault() {
-    await clearVault();
+    // Full destructive wipe: Dexie plaintext, encrypted snapshot, crypto
+    // metadata, biometric credential. Order matters — we clear encrypted
+    // artefacts last so any partial failure still leaves us without readable
+    // data. The transaction covers every known table so no caller needs to
+    // add their own wipe list (the cause of C-BLK-006).
+    try {
+      await wipeTables();
+    } catch (e) {
+      console.error('wipeVault: wipeTables failed', e);
+    }
+    try {
+      await disableBiometry();
+    } catch (e) {
+      console.error('wipeVault: disableBiometry failed', e);
+    }
     clearEncryptedSnapshot();
-    await disableBiometry();
+    await clearVault();
     set({
       master: null,
       status: 'welcome',
@@ -181,6 +221,17 @@ export const useLock = create<LockState>((set, get) => ({
     const newPinKey = await derivePinKey(newPin, newSalt);
     const { wrapped, iv } = await wrapMasterKey(master, newPinKey);
     await saveVaultMeta(wrapped, iv, bytesToBase64(newSalt));
+    // Keep the biometric keystore in sync. Without this, users with biometry
+    // enabled silently lock themselves out on next unlockWithBiometry because
+    // getCredentials returns the old PIN.
+    try {
+      const bio = await getBiometryStatus();
+      if (bio.hasSavedPin) {
+        await enableBiometry(newPin);
+      }
+    } catch (e) {
+      console.warn('changePin: biometry keystore update skipped', e);
+    }
     set({ master, failedAttempts: 0, lockedOutUntil: null });
     return true;
   },

@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearVault } from '@/lib/crypto';
+import { db } from '@/db/database';
+import { resetDb } from '@/test/resetDb';
 import {
   DEFAULT_AUTO_LOCK_MS,
   LOCKOUT_MS,
@@ -8,8 +10,13 @@ import {
   useLock,
 } from './lock';
 
+const PRIMARY_KEY = 'saldo.vaultPayload';
+const BACKUP_KEY = 'saldo.vaultPayloadBackup';
+
 async function resetLock(): Promise<void> {
+  localStorage.clear();
   await clearVault();
+  await resetDb();
   useLock.setState({
     status: 'booting',
     master: null,
@@ -38,6 +45,25 @@ describe('lock store boot', () => {
     expect(useLock.getState().status).toBe('locked');
     expect(useLock.getState().master).toBeNull();
   });
+
+  it('hard-kill recovery: wipes Dexie plaintext when vault + snapshot + rows present', async () => {
+    // Setup leaves an empty encrypted baseline + empty Dexie (wiped by
+    // encryptAndWipe). Unlock restores; now we mutate Dexie without locking
+    // again, simulating a hard-kill mid-session.
+    await useLock.getState().setupPin('12345');
+    await useLock.getState().lock();
+    await useLock.getState().unlock('12345');
+    await db.accounts.add({ name: 'dirty', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    expect(await db.accounts.count()).toBeGreaterThan(0);
+
+    // Simulate hard-kill: master lost, vault still exists, snapshot still
+    // exists, Dexie holds plaintext rows.
+    useLock.setState({ status: 'booting', master: null });
+    await useLock.getState().boot();
+
+    expect(useLock.getState().status).toBe('locked');
+    expect(await db.accounts.count()).toBe(0);
+  });
 });
 
 describe('lock store setupPin', () => {
@@ -53,6 +79,11 @@ describe('lock store setupPin', () => {
 
   it('rejects PIN shorter than 4 digits', async () => {
     await expect(useLock.getState().setupPin('12')).rejects.toThrow(/PIN/);
+  });
+
+  it('writes a baseline encrypted snapshot so boot() can detect hard-kill', async () => {
+    await useLock.getState().setupPin('12345');
+    expect(localStorage.getItem(PRIMARY_KEY)).not.toBeNull();
   });
 });
 
@@ -109,6 +140,85 @@ describe('lock store unlock', () => {
   });
 });
 
+// GAP-002 — encrypt→wipe→decrypt→restore real cycle
+describe('lock store — full encrypt/wipe/decrypt/restore cycle', () => {
+  beforeEach(resetLock);
+  afterEach(resetLock);
+
+  it('lock() encrypts snapshot and wipes Dexie rows', async () => {
+    await useLock.getState().setupPin('12345');
+    const accountId = await db.accounts.add({
+      name: 'a',
+      bank: 'manual',
+      currency: 'EUR',
+      createdAt: 0,
+    });
+    await db.transactions.add({
+      accountId: accountId as number,
+      date: '2026-04-01',
+      amount: 5,
+      kind: 'expense',
+      description: 'test',
+      month: '2026-04',
+      createdAt: 0,
+    });
+
+    await useLock.getState().lock();
+
+    expect(useLock.getState().status).toBe('locked');
+    expect(useLock.getState().master).toBeNull();
+    expect(await db.accounts.count()).toBe(0);
+    expect(await db.transactions.count()).toBe(0);
+    expect(localStorage.getItem(PRIMARY_KEY)).not.toBeNull();
+  });
+
+  it('unlock(correct PIN) decrypts and restores seeded rows', async () => {
+    await useLock.getState().setupPin('12345');
+    await db.accounts.add({ name: 'seed', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    await useLock.getState().lock();
+
+    const ok = await useLock.getState().unlock('12345');
+    expect(ok).toBe(true);
+    const rows = await db.accounts.toArray();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.name).toBe('seed');
+  });
+
+  it('lock() then unlock(wrong PIN) leaves the encrypted snapshot untouched', async () => {
+    await useLock.getState().setupPin('12345');
+    await useLock.getState().lock();
+    const before = localStorage.getItem(PRIMARY_KEY);
+    await useLock.getState().unlock('99999');
+    const after = localStorage.getItem(PRIMARY_KEY);
+    expect(after).toBe(before);
+  });
+
+  it('lock() keeps previous payload under BACKUP_KEY (one generation)', async () => {
+    await useLock.getState().setupPin('12345');
+    await db.accounts.add({ name: 'gen1', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    await useLock.getState().lock();
+    const gen1 = localStorage.getItem(PRIMARY_KEY);
+    await useLock.getState().unlock('12345');
+    await db.accounts.add({ name: 'gen2', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    await useLock.getState().lock();
+    expect(localStorage.getItem(BACKUP_KEY)).toBe(gen1);
+    expect(localStorage.getItem(PRIMARY_KEY)).not.toBe(gen1);
+  });
+
+  it('unlock does NOT surface unlocked status on SHA mismatch', async () => {
+    await useLock.getState().setupPin('12345');
+    await useLock.getState().lock();
+    // tamper with the ciphertext sha to force a checksum mismatch.
+    const raw = JSON.parse(localStorage.getItem(PRIMARY_KEY)!);
+    localStorage.setItem(PRIMARY_KEY, JSON.stringify({ ...raw, sha: 'AAAA' }));
+    localStorage.removeItem(BACKUP_KEY);
+    const ok = await useLock.getState().unlock('12345');
+    expect(ok).toBe(false);
+    expect(useLock.getState().status).toBe('locked');
+    expect(useLock.getState().master).toBeNull();
+  });
+});
+
 describe('lock store lock + activity', () => {
   beforeEach(resetLock);
   afterEach(resetLock);
@@ -118,6 +228,25 @@ describe('lock store lock + activity', () => {
     await useLock.getState().lock();
     expect(useLock.getState().master).toBeNull();
     expect(useLock.getState().status).toBe('locked');
+  });
+
+  it('lock() still sets status=locked even when encryptAndWipe throws (C-BLK-004)', async () => {
+    await useLock.getState().setupPin('12345');
+    // break localStorage.setItem so encryptAndWipe fails. jsdom's localStorage
+    // is a Storage instance — stub setItem to throw QuotaExceededError.
+    const origSet = Storage.prototype.setItem;
+    try {
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('quota');
+      });
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      await useLock.getState().lock();
+      expect(useLock.getState().master).toBeNull();
+      expect(useLock.getState().status).toBe('locked');
+      consoleSpy.mockRestore();
+    } finally {
+      Storage.prototype.setItem = origSet;
+    }
   });
 
   it('registerActivity bumps lastActivityAt', () => {
@@ -134,14 +263,147 @@ describe('lock store lock + activity', () => {
   });
 });
 
-describe('lock store wipe', () => {
+// GAP-002 — changePin coverage
+describe('lock store changePin', () => {
+  beforeEach(async () => {
+    await resetLock();
+    await useLock.getState().setupPin('11111');
+  });
+  afterEach(resetLock);
+
+  it('accepts correct oldPin and updates vault so unlock(newPin) works', async () => {
+    const ok = await useLock.getState().changePin('11111', '22222');
+    expect(ok).toBe(true);
+    await useLock.getState().lock();
+    const unlocked = await useLock.getState().unlock('22222');
+    expect(unlocked).toBe(true);
+  });
+
+  it('rejects when oldPin is wrong and leaves vault untouched', async () => {
+    const ok = await useLock.getState().changePin('99999', '22222');
+    expect(ok).toBe(false);
+    await useLock.getState().lock();
+    expect(await useLock.getState().unlock('11111')).toBe(true);
+  });
+
+  it('throws when newPin is too short', async () => {
+    await expect(useLock.getState().changePin('11111', '12')).rejects.toThrow(/PIN/);
+  });
+
+  it('after changePin, unlock(oldPin) returns false (security-critical)', async () => {
+    await useLock.getState().changePin('11111', '22222');
+    await useLock.getState().lock();
+    const ok = await useLock.getState().unlock('11111');
+    expect(ok).toBe(false);
+  });
+
+  it('after changePin, snapshot still decrypts with the (same) master key', async () => {
+    // Seed, lock, change pin, lock again, unlock with new — data survives.
+    await useLock.getState().lock();
+    await useLock.getState().unlock('11111');
+    await db.accounts.add({ name: 'persist', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    await useLock.getState().changePin('11111', '22222');
+    await useLock.getState().lock();
+    const ok = await useLock.getState().unlock('22222');
+    expect(ok).toBe(true);
+    const rows = await db.accounts.toArray();
+    expect(rows.some((a) => a.name === 'persist')).toBe(true);
+  });
+});
+
+// GAP-002 — unlockWithBiometry
+describe('lock store unlockWithBiometry', () => {
+  beforeEach(resetLock);
+  afterEach(async () => {
+    vi.doUnmock('@/lib/crypto');
+    await resetLock();
+  });
+
+  it('returns false when biometric auth fails', async () => {
+    await useLock.getState().setupPin('12345');
+    await useLock.getState().lock();
+    const mod = await import('@/lib/crypto');
+    const spy = vi.spyOn(mod, 'authenticateBiometry').mockResolvedValue(false);
+    const ok = await useLock.getState().unlockWithBiometry();
+    expect(ok).toBe(false);
+    spy.mockRestore();
+  });
+
+  it('unlocks when biometric yields the correct PIN', async () => {
+    await useLock.getState().setupPin('12345');
+    await useLock.getState().lock();
+    const mod = await import('@/lib/crypto');
+    const spy = vi.spyOn(mod, 'authenticateBiometry').mockResolvedValue('12345');
+    const ok = await useLock.getState().unlockWithBiometry();
+    expect(ok).toBe(true);
+    expect(useLock.getState().status).toBe('unlocked');
+    spy.mockRestore();
+  });
+
+  it('stays locked when biometric yields a stale/wrong PIN', async () => {
+    await useLock.getState().setupPin('12345');
+    await useLock.getState().lock();
+    const mod = await import('@/lib/crypto');
+    const spy = vi.spyOn(mod, 'authenticateBiometry').mockResolvedValue('99999');
+    const ok = await useLock.getState().unlockWithBiometry();
+    expect(ok).toBe(false);
+    expect(useLock.getState().status).toBe('locked');
+    spy.mockRestore();
+  });
+});
+
+// GAP-002 — wipeVault exhaustive
+describe('lock store wipeVault', () => {
   beforeEach(resetLock);
   afterEach(resetLock);
 
-  it('wipeVault removes vault and returns to welcome', async () => {
+  it('removes vault, encrypted snapshot and backup from localStorage', async () => {
     await useLock.getState().setupPin('12345');
+    await db.accounts.add({ name: 'x', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    await useLock.getState().lock();
+    await useLock.getState().unlock('12345');
+    await useLock.getState().lock(); // creates a backup entry
+    expect(localStorage.getItem(PRIMARY_KEY)).not.toBeNull();
+
     await useLock.getState().wipeVault();
+
+    expect(localStorage.getItem(PRIMARY_KEY)).toBeNull();
+    expect(localStorage.getItem(BACKUP_KEY)).toBeNull();
+    expect(localStorage.getItem('saldo.vault.wrappedKey')).toBeNull();
+    expect(localStorage.getItem('saldo.vault.wrapIv')).toBeNull();
+    expect(localStorage.getItem('saldo.vault.kdfSalt')).toBeNull();
+  });
+
+  it('clears Dexie tables so plaintext does not survive', async () => {
+    await useLock.getState().setupPin('12345');
+    await db.accounts.add({ name: 'a', bank: 'manual', currency: 'EUR', createdAt: 0 });
+    await db.transactions.add({
+      accountId: 1,
+      date: '2026-04-01',
+      amount: 1,
+      kind: 'expense',
+      description: 't',
+      month: '2026-04',
+      createdAt: 0,
+    });
+    await useLock.getState().wipeVault();
+    expect(await db.accounts.count()).toBe(0);
+    expect(await db.transactions.count()).toBe(0);
+  });
+
+  it('returns the store to welcome and clears failedAttempts/lockedOutUntil', async () => {
+    await useLock.getState().setupPin('12345');
+    await useLock.getState().lock();
+    for (let i = 0; i < LOCKOUT_THRESHOLD; i += 1) {
+      await useLock.getState().unlock('99999');
+    }
+    expect(useLock.getState().lockedOutUntil).not.toBeNull();
+
+    await useLock.getState().wipeVault();
+
     expect(useLock.getState().status).toBe('welcome');
+    expect(useLock.getState().failedAttempts).toBe(0);
+    expect(useLock.getState().lockedOutUntil).toBeNull();
     await useLock.getState().boot();
     expect(useLock.getState().status).toBe('welcome');
   });
@@ -154,22 +416,16 @@ describe('installAutoLock', () => {
   it('locks after inactivity exceeds autoLockMs', async () => {
     await useLock.getState().setupPin('12345');
     useLock.getState().setAutoLockMs(1_000);
-    // Simulate past activity.
     const past = Date.now() - 60_000;
     useLock.setState({ lastActivityAt: past });
     let now = past + 60_000;
     const cleanup = installAutoLock(() => now);
-    // Manually trigger the tick by advancing now — the tick runs on interval,
-    // but we can also directly call lock() via the tick trigger by simulating
-    // setInterval under vi. Simpler: trigger via registerActivity path.
-    // We directly call the tick logic by awaiting a short delay >1s.
     await new Promise((r) => setTimeout(r, 1050));
     expect(useLock.getState().status).toBe('locked');
     cleanup();
   });
 
   it('does nothing when not unlocked', async () => {
-    // vault absent → welcome → ticks should not crash.
     await useLock.getState().boot();
     const cleanup = installAutoLock();
     await new Promise((r) => setTimeout(r, 50));

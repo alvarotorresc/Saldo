@@ -38,4 +38,6 @@ export {
   buildSnapshot as buildVaultSnapshot,
   encryptAndWipe,
   decryptAndRestore,
+  hasPlaintextData,
+  wipeTables,
 } from './atRest';

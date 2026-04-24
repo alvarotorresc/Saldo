@@ -5,7 +5,6 @@
  * dashboardMode default.
  */
 import { useState } from 'react';
-import { db } from '@/db/database';
 import { TopBarV2 } from '@/ui/TopBarV2';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Badge, Btn } from '@/ui/primitives';
@@ -44,39 +43,6 @@ export function SettingsPage() {
       return;
     }
     if (!window.confirm('Último aviso. ¿Seguro?')) return;
-    await db.transaction(
-      'rw',
-      [
-        db.transactions,
-        db.accounts,
-        db.categories,
-        db.categoryGroups,
-        db.budgets,
-        db.goals,
-        db.loans,
-        db.rules,
-        db.subscriptions,
-        db.recurring,
-        db.balances,
-        db.meta,
-      ],
-      async () => {
-        await Promise.all([
-          db.transactions.clear(),
-          db.accounts.clear(),
-          db.categories.clear(),
-          db.categoryGroups.clear(),
-          db.budgets.clear(),
-          db.goals.clear(),
-          db.loans.clear(),
-          db.rules.clear(),
-          db.subscriptions.clear(),
-          db.recurring.clear(),
-          db.balances.clear(),
-          db.meta.clear(),
-        ]);
-      },
-    );
     await wipeVault();
   }
 

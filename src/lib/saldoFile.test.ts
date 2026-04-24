@@ -26,6 +26,7 @@ const sample: SaldoSnapshot = {
   loans: [],
   balances: [],
   txTombstones: [{ id: 1, txHash: 'abc123', deletedAt: 1_700_000_000_000 }],
+  recurring: [],
 };
 
 describe('saldoFile round-trip', () => {
@@ -54,11 +55,32 @@ describe('saldoFile round-trip', () => {
   });
 
   it('accepts v1 snapshots (pre-tombstone) and defaults txTombstones to []', () => {
-    const { txTombstones, ...rest } = sample;
+    const { txTombstones, recurring, ...rest } = sample;
     void txTombstones;
+    void recurring;
     const legacy = JSON.stringify({ ...rest, version: 1 });
     const out = parseSnapshot(legacy);
     expect(out.version).toBe(1);
     expect(out.txTombstones).toEqual([]);
+    expect(out.recurring).toEqual([]);
+  });
+
+  it('preserves db.recurring across round-trip (C-BLK-001 regression)', () => {
+    const withRecurring: SaldoSnapshot = {
+      ...sample,
+      recurring: [
+        {
+          id: 1,
+          signature: 'spotify',
+          averageAmount: 9.99,
+          cadenceDays: 30,
+          lastSeen: '2026-04-01',
+          sampleCount: 6,
+          kind: 'expense',
+        },
+      ],
+    };
+    const out = parseSnapshot(serializeSnapshot(withRecurring));
+    expect(out.recurring).toEqual(withRecurring.recurring);
   });
 });

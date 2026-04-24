@@ -6,6 +6,7 @@ import type {
   CategoryGroup,
   Goal,
   Loan,
+  Recurring,
   Rule,
   Subscription,
   Transaction,
@@ -28,6 +29,7 @@ export interface SaldoSnapshot {
   loans: Loan[];
   balances: AccountBalance[];
   txTombstones?: TxTombstone[]; // v2+
+  recurring?: Recurring[]; // v2+ (absent in older snapshots)
 }
 
 /** Pure: produces the canonical JSON string for a .saldo/.json export. */
@@ -69,6 +71,7 @@ export function parseSnapshot(raw: string): SaldoSnapshot {
   }
   const version: SaldoSnapshotVersion = d.version;
   const tombstones = Array.isArray(d.txTombstones) ? d.txTombstones : [];
+  const recurring = Array.isArray(d.recurring) ? d.recurring : [];
   return {
     version,
     exportedAt: typeof d.exportedAt === 'string' ? d.exportedAt : new Date().toISOString(),
@@ -83,5 +86,6 @@ export function parseSnapshot(raw: string): SaldoSnapshot {
     loans: d.loans!,
     balances: d.balances!,
     txTombstones: tombstones,
+    recurring,
   };
 }
