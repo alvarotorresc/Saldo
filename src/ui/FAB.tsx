@@ -13,9 +13,9 @@ export function FAB({ label, icon, className = '', ...rest }: Props) {
     <button
       {...rest}
       aria-label={ariaLabel}
-      className={`press fixed z-40 inline-flex items-center gap-2 h-14 ${
-        label ? 'px-5' : 'w-14 px-0'
-      } rounded-full bg-text text-bg font-semibold shadow-xl shadow-black/50 ${className}`}
+      className={`press fixed z-40 inline-flex items-center gap-2 h-12 ${
+        label ? 'px-4' : 'w-12 px-0'
+      } rounded-xs border border-accent bg-surface text-accent font-mono tracking-widest ${className}`}
       style={{
         bottom: `calc(var(--sab) + 72px)`,
         right: `max(1rem, calc((100vw - 720px) / 2 + 1rem))`,

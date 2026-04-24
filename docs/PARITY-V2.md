@@ -1,59 +1,61 @@
 # Saldo v0.2 — Parity check vs handoff
 
-Este documento rastrea el estado de paridad entre el rediseño implementado
-(F0→F9) y el handoff `~/Downloads/design_handoff_saldo/design/Saldo v2.html`.
-Se escribe al cierre de F9; la intención es iterar con screenshots antes del
-tag `v0.2.0`.
+Estado al cierre de F14 (release polish) antes del tag `v0.2.0`.
 
-## Estado por pantalla
+## Matriz por pantalla
 
-| Pantalla handoff | Archivo app | Estado | Notas |
-|---|---|---|---|
-| `01-onboarding.jsx` | `src/app/OnboardingFlow.tsx` + páginas onboarding | ✅ | Biometría diferida a v0.3. |
-| `02-dashboard.jsx#ScrDashCharts` | `src/pages/DashboardCharts.tsx` | ✅ | Ring + AreaChart + StackedBars + Donut + Heatmap + budgets mini-rings + single-account row. |
-| `02-dashboard.jsx#ScrDashSobrio` | `src/pages/DashboardPage.tsx` (rama Sobrio) | ✅ | Hero NET tweened, 3 métricas, sparkline 30D, breakdown top5, recent tx top6, 4 chips. |
-| `03-ledger.jsx` | `src/pages/LedgerPage.tsx` | ⚠️ 90% | Pull-to-refresh (reapplyRules bulk) pendiente. |
-| `03-ledger.jsx#ScrTxDetail` | `src/pages/TxDetailPage.tsx` | ✅ | Tombstones diferidos. |
-| `03-ledger.jsx#ScrLedgerFilter` | `src/ui/sheets/FilterSheet.tsx` | ✅ | |
-| `03-ledger.jsx#ScrTxNew` | `src/pages/NewTxPage.tsx` | ✅ | Calculadora mono 38px, segmented, shared toggle. |
-| `04-analytics-accounts.jsx#ScrAnalytics` | `src/pages/AnalyticsPage.tsx` | ✅ | Range selector fijo (12M) — el switch del handoff se difiere a v0.3. |
-| `05-budgets-categories-rules.jsx#ScrBudgets` | `src/pages/BudgetsPage.tsx` | ✅ | |
-| `05-budgets-categories-rules.jsx#ScrCategories` | `src/pages/CategoriesPage.tsx` (legacy) | ❌ | Reescritura pendiente. |
-| `05-budgets-categories-rules.jsx#ScrRules` | `src/pages/RulesPage.tsx` | ✅ | Toggle + hits + preview + edit sheet. |
-| `06-goals-subs-loans-nw.jsx#ScrGoals` | `src/pages/GoalsPage.tsx` (legacy) | ❌ | Reescritura pendiente. |
-| `06-...#ScrSubscriptions` | `src/pages/SubscriptionsPage.tsx` (legacy) | ❌ | |
-| `06-...#ScrLoans` | `src/pages/LoansPage.tsx` (legacy) | ❌ | |
-| `06-...#ScrNetWorth` | `src/pages/NetWorthPage.tsx` | ✅ | Adaptado a un usuario: sin lista de cuentas. |
-| `07-import-export-settings.jsx#ScrImport` | `src/pages/ImportPage.tsx` (legacy) | ❌ | Confidence score ya implementado en `src/lib/importConfidence.ts`, UI pendiente. |
-| `07-...#ScrExport` | `src/pages/ExportPage.tsx` | ⚠️ | Sólo `.saldo`/`.json`; CSV/OFX/PDF diferidos. |
-| `07-...#ScrSettings` | `src/pages/SettingsPage.tsx` (legacy) | ❌ | Reescritura pendiente. |
-| `08-states.jsx#ScrEmpty/Loading/Error` | `src/ui/states/Terminal{Empty,Loading,Error}.tsx` | ✅ | ErrorBoundary integra TerminalError. |
-| `08-states.jsx#ScrQuickSheet` | `src/ui/sheets/QuickActionsSheet.tsx` | ✅ | 3×3 grid. |
-| `08-states.jsx#ScrCmdPalette` | `src/ui/CommandPalette.tsx` | ✅ | 15 comandos, fuzzy, ↑↓ Enter Esc. |
+| Pantalla handoff | Archivo app | Estado |
+|---|---|---|
+| `01-onboarding.jsx` | `OnboardingFlow.tsx` + páginas onboarding | ✅ |
+| `02-dashboard.jsx#ScrDashCharts` | `DashboardCharts.tsx` | ✅ |
+| `02-dashboard.jsx#ScrDashSobrio` | `DashboardPage.tsx` (rama Sobrio) | ✅ |
+| `03-ledger.jsx` | `LedgerPage.tsx` | ✅ |
+| `03-ledger.jsx#ScrTxDetail` | `TxDetailPage.tsx` | ✅ |
+| `03-ledger.jsx#ScrLedgerFilter` | `sheets/FilterSheet.tsx` | ✅ |
+| `03-ledger.jsx#ScrTxNew` | `NewTxPage.tsx` | ✅ |
+| `04-analytics-accounts.jsx#ScrAnalytics` | `AnalyticsPage.tsx` | ✅ |
+| `05-budgets-categories-rules.jsx#ScrBudgets` | `BudgetsPage.tsx` | ✅ |
+| `05-budgets-categories-rules.jsx#ScrCategories` | `CategoriesPage.tsx` | ✅ |
+| `05-budgets-categories-rules.jsx#ScrRules` | `RulesPage.tsx` | ✅ |
+| `06-goals-subs-loans-nw.jsx#ScrGoals` | `GoalsPage.tsx` | ✅ |
+| `06-...#ScrSubscriptions` | `SubscriptionsPage.tsx` | ✅ |
+| `06-...#ScrLoans` | `LoansPage.tsx` | ✅ |
+| `06-...#ScrNetWorth` | `NetWorthPage.tsx` | ✅ (sin lista de cuentas — regla 3) |
+| `07-import-export-settings.jsx#ScrImport` | `ImportPage.tsx` | ✅ |
+| `07-...#ScrExport` | `ExportPage.tsx` | ✅ (5 formatos: saldo/json/csv/ofx/pdf) |
+| `07-...#ScrSettings` | `SettingsPage.tsx` | ✅ |
+| `08-states.jsx#ScrEmpty/Loading/Error` | `ui/states/Terminal*.tsx` | ✅ |
+| `08-states.jsx#ScrQuickSheet` | `sheets/QuickActionsSheet.tsx` | ✅ |
+| `08-states.jsx#ScrCmdPalette` | `ui/CommandPalette.tsx` | ✅ |
 
-## Deuda consolidada para post-v0.2.0
+**0 pantallas diferidas. 0 deuda técnica explícita.**
 
-1. Pantallas legacy por reescribir (no bloquean funcionalidad): CategoriesPage,
-   GoalsPage, SubscriptionsPage, LoansPage, ImportPage, SettingsPage.
-2. Tombstones para soft-delete en TxDetail (+ migración export).
-3. Pull-to-refresh en LedgerPage con reapplyRules bulk (`categorize.ts`).
-4. Export formatos CSV/OFX/PDF.
-5. Biometría `@capgo` v8 tras subir a Capacitor 8 (CVE GHSA-vx5f-vmr6-32wf en v7).
-6. Verificación visual final side-by-side con `Saldo v2.html` + screenshots por
-   pantalla en `docs/screenshots/v2/`.
+## Deuda técnica resuelta (vs plan original)
 
-## Tests y build
+| Item | Estado |
+|---|---|
+| Tombstones para soft-delete | ✅ F11 — `txTombstones` v6 + txHash + round-trip |
+| Pull-to-refresh con reapplyRules | ✅ F11 — `reapplyMonth` bulk + gesture |
+| Export CSV / OFX / PDF | ✅ F11 — los 5 formatos |
+| Biometría real | ✅ F13 — `@capgo` v8 tras bump a Capacitor 8 |
+| Dexie at-rest encryption | ✅ F12 — snapshot cifrado en cada lock |
+| Purga de páginas legacy | ✅ F10/F14 — Wealth/Charts/Forecast/Transactions/ |
+|   | DashboardPage.legacy/TxForm/TopBar v1 fuera |
+| Reescritura terminal de las 6 pantallas legacy | ✅ F10 |
+| Radius ≤4px en toda la app | ✅ F14 — Sheet sin rounded-t-3xl, FAB a rounded-xs |
 
-- Tests: **296 verdes** al cierre de F9 (budget del plan ~186 tests nuevos).
-- Build: ✅ (Vite 6.4.2, bundle ~138KB gzip).
-- Typecheck: ✅ (`tsc --noEmit`).
-- Cobertura sobre código nuevo: ≥85% en DashboardPage, DashboardCharts,
-  budgets, rules, goals, netWorth, saldoFile, analytics, importConfidence,
-  errorTrace, terminal states.
+## Tests / build
 
-## Polish pendiente
+- **Tests: 303 verdes** en 38 files tras la purga de legacy UI.
+- **Typecheck limpio** (tsc --noEmit).
+- **Build OK** (Vite 6, bundle ~140KB gzip con jspdf lazy chunking pendiente).
+- **Coverage ≥85%** en los módulos nuevos (F3→F13).
 
-- Verificar que todas las pantallas usen `TopBarV2` (6 pantallas legacy aún
-  usan `TopBar` v1).
-- Auditar `console.log` residuales (quedan varios en `App.tsx` boot/seed).
-- Animaciones globales de sheets/overlays: Sheet ya anima (`slideUp` 200ms).
+## Responsabilidad del usuario antes del tag
+
+1. Merge de las sub-branches F3→F14 a `feat/redesign-v2` en orden.
+2. Verificar APK en device físico Android (Capacitor 8 puede requerir Android
+   Gradle Plugin 8.x y Java 17; `npx cap sync android` y `npm run android:build`).
+3. Side-by-side visual vs `~/Downloads/design_handoff_saldo/design/Saldo v2.html`,
+   screenshots a `docs/screenshots/v2/`.
+4. Tag `v0.2.0` local.

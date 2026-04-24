@@ -14,7 +14,6 @@ import { FAB } from '@/ui/FAB';
 import { Sheet } from '@/ui/Sheet';
 import { Row } from '@/ui/primitives';
 import { useApp } from '@/stores/app';
-import { TxForm } from '@/features/transactions/TxForm';
 import type { Category, Transaction } from '@/types';
 import { filterTx, groupTxByDate, summarize } from './LedgerPage.helpers';
 import type { LedgerKindFilter } from './LedgerPage.helpers';
@@ -241,10 +240,6 @@ export function LedgerPage({ onOpenTx, onOpenFilter, onNewTx }: LedgerPageProps 
   const [query, setQuery] = useState('');
   const [inputFocused, setInputFocused] = useState(false);
   const [kindFilter, setKindFilter] = useState<LedgerKindFilter>('all');
-
-  // Sheet state
-  const [addOpen, setAddOpen] = useState(false);
-  const [editing, setEditing] = useState<Transaction | null>(null);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -501,7 +496,6 @@ export function LedgerPage({ onOpenTx, onOpenFilter, onNewTx }: LedgerPageProps 
                       onLongPress={handleLongPress}
                       onClick={(t) => {
                         if (onOpenTx && t.id != null) onOpenTx(t.id);
-                        else setEditing(t);
                       }}
                     />
                   );
@@ -522,19 +516,9 @@ export function LedgerPage({ onOpenTx, onOpenFilter, onNewTx }: LedgerPageProps 
         <FAB
           aria-label="Añadir movimiento"
           icon={<Icon name="plus" size={20} />}
-          onClick={() => (onNewTx ? onNewTx() : setAddOpen(true))}
+          onClick={() => onNewTx?.()}
         />
       )}
-
-      {/* Edit sheet */}
-      <Sheet open={!!editing} onClose={() => setEditing(null)} title="Movimiento">
-        {editing && <TxForm tx={editing} onClose={() => setEditing(null)} />}
-      </Sheet>
-
-      {/* Add sheet */}
-      <Sheet open={addOpen} onClose={() => setAddOpen(false)} title="Nuevo movimiento">
-        <TxForm onClose={() => setAddOpen(false)} />
-      </Sheet>
 
       {/* Context menu sheet */}
       <Sheet

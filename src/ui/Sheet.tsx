@@ -71,7 +71,7 @@ export function Sheet({ open, onClose, title, ariaLabel, children, maxHeight = '
         aria-labelledby={labelledBy}
         aria-label={label}
         tabIndex={-1}
-        className="relative w-full bg-surface border-t border-border rounded-t-3xl animate-[slideUp_.2s_ease] outline-none"
+        className="relative w-full bg-surface border-t border-border animate-[slideUp_.2s_ease] outline-none"
         style={{ maxHeight, paddingBottom: 'var(--sab)' }}
       >
         <div className="flex justify-center pt-2 pb-1">
