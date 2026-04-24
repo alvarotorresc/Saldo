@@ -20,6 +20,8 @@ import { ChartsPage } from '@/pages/ChartsPage';
 import { WealthPage } from '@/pages/WealthPage';
 import { CategoriesPage } from '@/pages/CategoriesPage';
 import { ForecastPage } from '@/pages/ForecastPage';
+import { BudgetsPage } from '@/pages/BudgetsPage';
+import { RulesPage } from '@/pages/RulesPage';
 import { useLock, installAutoLock } from '@/stores/lock';
 import { OnboardingFlow } from '@/app/OnboardingFlow';
 import { LockPage } from '@/pages/onboarding/LockPage';
@@ -200,6 +202,22 @@ export default function App() {
         setMoreSection('categories');
       },
     },
+    {
+      id: 'go-budgets',
+      label: 'Budgets',
+      onRun: () => {
+        setTab('more');
+        setMoreSection('budgets');
+      },
+    },
+    {
+      id: 'go-rules',
+      label: 'Rules',
+      onRun: () => {
+        setTab('more');
+        setMoreSection('rules');
+      },
+    },
     { id: 'settings', label: 'Settings', onRun: () => setTab('settings') },
     { id: 'lock', label: 'Lock now', onRun: () => useLock.getState().lock() },
   ];
@@ -267,6 +285,10 @@ export default function App() {
                     <CategoriesPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'forecast' ? (
                     <ForecastPage onBack={() => setMoreSection(null)} />
+                  ) : moreSection === 'budgets' ? (
+                    <BudgetsPage onBack={() => setMoreSection(null)} />
+                  ) : moreSection === 'rules' ? (
+                    <RulesPage onBack={() => setMoreSection(null)} />
                   ) : null)}
                 {tab === 'settings' && <SettingsPage />}
               </>
@@ -304,7 +326,7 @@ export default function App() {
         }}
         onNewRule={() => {
           setTab('more');
-          setMoreSection('categories');
+          setMoreSection('rules');
         }}
       />
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} commands={commands} />

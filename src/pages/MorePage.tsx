@@ -9,7 +9,9 @@ export type MoreSection =
   | 'charts'
   | 'wealth'
   | 'categories'
-  | 'forecast';
+  | 'forecast'
+  | 'budgets'
+  | 'rules';
 
 interface Props {
   onOpen: (section: MoreSection) => void;
@@ -72,6 +74,20 @@ const ENTRIES: Entry[] = [
     subtitle: 'Editar grupos y categorías',
     icon: 'folder',
     color: '#A78BFA',
+  },
+  {
+    key: 'budgets',
+    title: 'Presupuestos',
+    subtitle: 'Límites por categoría',
+    icon: 'target',
+    color: '#F472B6',
+  },
+  {
+    key: 'rules',
+    title: 'Reglas',
+    subtitle: 'Auto-categorización',
+    icon: 'flow',
+    color: '#60A5FA',
   },
 ];
 
