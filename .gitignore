@@ -20,6 +20,10 @@ android/local.properties
 # APKs
 *.apk
 
+# Signing material
+*.keystore
+*.jks
+
 # Logs y caches
 *.log
 .DS_Store
