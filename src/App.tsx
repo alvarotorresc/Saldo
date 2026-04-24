@@ -10,6 +10,7 @@ import { NewTxPage } from '@/pages/NewTxPage';
 import { FilterSheet } from '@/ui/sheets/FilterSheet';
 import { QuickActionsSheet } from '@/ui/sheets/QuickActionsSheet';
 import { CommandPalette, type Command } from '@/ui/CommandPalette';
+import { TerminalError } from '@/ui/states/TerminalError';
 import { ImportPage } from '@/pages/ImportPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { MorePage, type MoreSection } from '@/pages/MorePage';
@@ -64,17 +65,8 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
   render() {
     if (this.state.error) {
       return (
-        <div className="h-full grid place-items-center p-6">
-          <div className="w-full max-w-sm bg-surface border border-border rounded-2xl p-6 text-center">
-            <h2 className="text-lg font-semibold mb-2">Ha ocurrido un error inesperado</h2>
-            <p className="text-sm text-muted mb-4 break-words">{this.state.error.message}</p>
-            <button
-              onClick={this.handleReload}
-              className="press inline-flex items-center justify-center h-11 px-5 rounded-full bg-text text-bg font-semibold text-sm"
-            >
-              Reintentar
-            </button>
-          </div>
+        <div className="h-full flex flex-col bg-bg text-text">
+          <TerminalError error={this.state.error} onRetry={this.handleReload} />
         </div>
       );
     }
