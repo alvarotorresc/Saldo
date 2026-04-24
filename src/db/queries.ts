@@ -72,6 +72,36 @@ export async function expensesByGroup(month: string): Promise<Map<number | 'none
   return map;
 }
 
+function daysInMonth(month: string): number {
+  const [y, m] = month.split('-').map(Number);
+  if (!y || !m) return 30;
+  return new Date(y, m, 0).getDate();
+}
+
+/**
+ * Pure helper: given a set of transactions and a month (yyyy-mm), returns an
+ * array whose length matches the number of days in that month. Each index
+ * holds the sum of `effectiveAmount` for expenses on that day.
+ * Income and reimbursements are ignored.
+ */
+export function dailySpendFromRows(rows: readonly Transaction[], month: string): number[] {
+  const len = daysInMonth(month);
+  const out = new Array<number>(len).fill(0);
+  for (const t of rows) {
+    if (t.kind !== 'expense') continue;
+    if (t.month !== month) continue;
+    const day = Number(t.date.slice(8, 10));
+    if (!day || day < 1 || day > len) continue;
+    out[day - 1] += effectiveAmount(t);
+  }
+  return out;
+}
+
+export async function dailySpend(month: string): Promise<number[]> {
+  const rows = await txByMonth(month);
+  return dailySpendFromRows(rows, month);
+}
+
 export async function monthlyTotals(
   months: string[],
 ): Promise<Map<string, { income: number; expense: number; net: number }>> {
