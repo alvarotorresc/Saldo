@@ -1,415 +1,344 @@
+/**
+ * SubscriptionsPage — F10 rewrite (ScrSubscriptions). Summary mensual/anual +
+ * listas Próximos (30d) y Anuales. CRUD completo con color-bar vertical.
+ */
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useState } from 'react';
 import { db } from '@/db/database';
-import { daysUntil, monthlyCostForCadence, nextDateFromCadence } from '@/lib/loan';
-import { formatDateLong, formatMoney } from '@/lib/format';
-import { TopBar } from '@/ui/TopBar';
-import { Card } from '@/ui/Card';
-import { Button } from '@/ui/Button';
+import { formatMoney } from '@/lib/format';
+import { monthlyCostForCadence, daysUntil, nextDateFromCadence } from '@/lib/loan';
+import { TopBarV2 } from '@/ui/TopBarV2';
 import { Icon } from '@/ui/Icon';
+import { Btn } from '@/ui/primitives';
 import { Sheet } from '@/ui/Sheet';
-import { Input, Select, Textarea } from '@/ui/Input';
-import { EmptyState } from '@/ui/EmptyState';
 import type { Subscription, SubscriptionCadence } from '@/types';
-
-const COLORS = ['#818CF8', '#60A5FA', '#A78BFA', '#F472B6', '#10B981', '#F59E0B', '#FB7185'];
 
 interface Props {
   onBack: () => void;
 }
 
+const PALETTE = [
+  '#e50914',
+  '#1db954',
+  '#8b9dc3',
+  '#10a37f',
+  '#d97757',
+  '#a78bd0',
+  '#74a7c9',
+  '#F472B6',
+];
+const CADENCES: SubscriptionCadence[] = ['weekly', 'biweekly', 'monthly', 'quarterly', 'yearly'];
+
 export function SubscriptionsPage({ onBack }: Props) {
-  const subs = useLiveQuery(() => db.subscriptions.orderBy('nextCharge').toArray(), []);
-  const recurring = useLiveQuery(() => db.recurring.toArray(), []);
-  const categories = useLiveQuery(() => db.categories.toArray(), []);
+  const subs = useLiveQuery(() => db.subscriptions.where('active').equals(1).toArray(), []);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Subscription | null>(null);
-  const [detectOpen, setDetectOpen] = useState(false);
 
-  const totals = useMemo(() => {
-    let monthly = 0;
-    let yearly = 0;
+  const { monthly, yearly, upcoming, annuals } = useMemo(() => {
+    let m = 0;
+    let y = 0;
+    const upcoming: Subscription[] = [];
+    const annuals: Subscription[] = [];
     for (const s of subs ?? []) {
-      if (!s.active) continue;
-      monthly += monthlyCostForCadence(s.amount, s.cadence);
-      yearly += monthlyCostForCadence(s.amount, s.cadence) * 12;
+      const mc = monthlyCostForCadence(s.amount, s.cadence);
+      m += mc;
+      y += mc * 12;
+      const d = daysUntil(s.nextCharge);
+      if (s.cadence === 'yearly') annuals.push(s);
+      else if (d >= 0 && d <= 30) upcoming.push(s);
+      else upcoming.push(s);
     }
-    return { monthly, yearly };
+    upcoming.sort((a, b) => daysUntil(a.nextCharge) - daysUntil(b.nextCharge));
+    annuals.sort((a, b) => daysUntil(a.nextCharge) - daysUntil(b.nextCharge));
+    return { monthly: m, yearly: y, upcoming, annuals };
   }, [subs]);
 
   return (
     <>
-      <TopBar
-        title="Suscripciones"
-        subtitle={`${formatMoney(totals.monthly)}/mes · ${formatMoney(totals.yearly)}/año`}
-        leading={
-          <button onClick={onBack} className="press text-muted" aria-label="Atrás">
-            <Icon name="chevron-left" />
+      <TopBarV2
+        title="saldo@local"
+        sub={`SUBS · ${subs?.length ?? 0}`}
+        onBack={onBack}
+        right={
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            aria-label="Nueva suscripción"
+            className="press text-accent"
+            data-testid="sub-add-btn"
+          >
+            <Icon name="plus" size={14} />
           </button>
         }
-        trailing={
-          <>
-            {(recurring?.filter((r) => r.kind === 'expense').length ?? 0) > 0 && (
-              <button
-                onClick={() => setDetectOpen(true)}
-                className="press w-9 h-9 rounded-full bg-elevated border border-border grid place-items-center text-muted"
-                aria-label="Detectar desde recurrentes"
-                title="Detectar desde recurrentes"
-              >
-                <Icon name="repeat" />
-              </button>
-            )}
-            <button
-              onClick={() => setAddOpen(true)}
-              className="press w-9 h-9 rounded-full bg-text text-bg grid place-items-center"
-              aria-label="Nueva suscripción"
-            >
-              <Icon name="plus" />
-            </button>
-          </>
-        }
       />
-      <div className="scroll-area flex-1 px-4 pb-6 space-y-3">
-        {!subs || subs.length === 0 ? (
-          <EmptyState
-            title="Sin suscripciones"
-            description="Añade Netflix, Spotify, gimnasio... o deja que Saldo las detecte desde tus gastos recurrentes."
-            action={
-              <Button variant="primary" onClick={() => setAddOpen(true)}>
-                Añadir suscripción
-              </Button>
-            }
-          />
-        ) : (
-          subs.map((s) => {
-            const days = daysUntil(s.nextCharge);
-            const urgency = days <= 2 ? 'text-danger' : days <= 7 ? 'text-warning' : 'text-muted';
-            const monthly = monthlyCostForCadence(s.amount, s.cadence);
-            return (
-              <Card key={s.id} padded={false}>
-                <button onClick={() => setEditing(s)} className="press w-full text-left p-4">
-                  <div className="flex items-start gap-3">
-                    <div
-                      className="w-10 h-10 rounded-full grid place-items-center shrink-0 text-sm font-semibold"
-                      style={{ background: s.color + '22', color: s.color }}
-                    >
-                      {s.name.slice(0, 1).toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold truncate">{s.name}</p>
-                        <span className="text-sm tabular">
-                          {formatMoney(s.amount)}
-                          <span className="text-muted text-[10px] ml-1">
-                            /{cadenceAbbrev(s.cadence)}
-                          </span>
-                        </span>
+      <div className="scroll-area flex-1 pb-6" data-testid="subs-page">
+        {/* Summary */}
+        <div className="grid grid-cols-2 border-b border-border">
+          <div className="px-3.5 py-3.5 border-r border-border">
+            <div className="font-mono text-mono9 text-dim tracking-widest uppercase">MENSUAL</div>
+            <div className="font-mono text-[20px] tabular text-text mt-1">
+              {formatMoney(monthly)}
+            </div>
+            <div className="font-mono text-mono9 text-muted mt-0.5">
+              × 12 = {formatMoney(monthly * 12)}/año
+            </div>
+          </div>
+          <div className="px-3.5 py-3.5">
+            <div className="font-mono text-mono9 text-dim tracking-widest uppercase">ANUAL_EQ</div>
+            <div className="font-mono text-[20px] tabular text-text mt-1">
+              {formatMoney(yearly)}
+            </div>
+            <div className="font-mono text-mono9 text-muted mt-0.5">
+              = {formatMoney(yearly / 12)}/mes equiv.
+            </div>
+          </div>
+        </div>
+
+        {upcoming.length > 0 && (
+          <>
+            <div className="px-3.5 py-2.5 bg-surface border-b border-border font-mono text-mono9 text-dim tracking-widest uppercase">
+              PRÓXIMOS COBROS · 30D
+            </div>
+            <ul>
+              {upcoming.map((s) => (
+                <li key={s.id} data-testid={`sub-${s.id}`}>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(s)}
+                    className="w-full flex items-center gap-3 px-3.5 py-3 border-b border-border press text-left"
+                  >
+                    <span className="w-1 h-7 shrink-0" style={{ background: s.color }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-mono12 text-text truncate">{s.name}</div>
+                      <div className="font-mono text-mono9 text-dim mt-0.5">
+                        próximo: {s.nextCharge} · /{s.cadence}
                       </div>
-                      <div className="mt-1 flex items-center justify-between">
-                        <p className={`text-[11px] tabular ${urgency}`}>
-                          {days < 0
-                            ? `hace ${Math.abs(days)} ${Math.abs(days) === 1 ? 'día' : 'días'}`
-                            : days === 0
-                              ? 'Hoy'
-                              : `en ${days} ${days === 1 ? 'día' : 'días'}`}
-                          <span className="text-dim"> · {formatDateLong(s.nextCharge)}</span>
-                        </p>
-                        {s.cadence !== 'monthly' && (
-                          <p className="text-[11px] text-muted tabular">
-                            ≈{formatMoney(monthly)}/mes
-                          </p>
-                        )}
-                      </div>
-                      {s.notes && <p className="text-[11px] text-dim mt-1 truncate">{s.notes}</p>}
                     </div>
-                  </div>
-                </button>
-              </Card>
-            );
-          })
+                    <div className="text-right shrink-0">
+                      <div className="font-mono text-mono12 text-text tabular">
+                        {formatMoney(s.amount)}
+                      </div>
+                      <div className="font-mono text-mono9 text-accent mt-0.5">activa</div>
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        {annuals.length > 0 && (
+          <>
+            <div className="px-3.5 py-2.5 bg-surface border-y border-border font-mono text-mono9 text-dim tracking-widest uppercase">
+              ANUALES
+            </div>
+            <ul>
+              {annuals.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(s)}
+                    className="w-full flex items-center gap-3 px-3.5 py-3 border-b border-border press text-left"
+                  >
+                    <span className="w-1 h-7 shrink-0" style={{ background: s.color }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-mono12 text-text truncate">{s.name}</div>
+                      <div className="font-mono text-mono9 text-dim mt-0.5">
+                        renueva {s.nextCharge}
+                      </div>
+                    </div>
+                    <div className="font-mono text-mono12 text-text tabular">
+                      {formatMoney(s.amount)}
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        {(subs ?? []).length === 0 && (
+          <div className="px-3.5 py-6 font-mono text-mono10 text-dim text-center">
+            Sin suscripciones. Añade la primera con +.
+          </div>
         )}
       </div>
 
-      <Sheet open={addOpen} onClose={() => setAddOpen(false)} title="Nueva suscripción">
-        <SubForm categories={categories ?? []} onClose={() => setAddOpen(false)} />
-      </Sheet>
-
-      <Sheet open={!!editing} onClose={() => setEditing(null)} title="Editar suscripción">
-        {editing && (
-          <SubForm sub={editing} categories={categories ?? []} onClose={() => setEditing(null)} />
-        )}
-      </Sheet>
-
-      <Sheet open={detectOpen} onClose={() => setDetectOpen(false)} title="Recurrentes detectados">
-        <DetectRecurring
-          recurringExpenses={(recurring ?? []).filter((r) => r.kind === 'expense')}
-          existing={subs ?? []}
-          onClose={() => setDetectOpen(false)}
+      <SubEditor open={addOpen} onClose={() => setAddOpen(false)} mode="create" />
+      {editing && (
+        <SubEditor
+          open={!!editing}
+          onClose={() => setEditing(null)}
+          mode="edit"
+          subscription={editing}
         />
-      </Sheet>
+      )}
     </>
   );
 }
 
-function cadenceAbbrev(c: SubscriptionCadence): string {
-  return { weekly: 'sem', biweekly: 'quinc', monthly: 'mes', quarterly: 'trim', yearly: 'año' }[c];
-}
-
-function hashSignature(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
-
-function SubForm({
-  sub,
-  categories,
+function SubEditor({
+  open,
   onClose,
+  mode,
+  subscription,
 }: {
-  sub?: Subscription;
-  categories: { id?: number; name: string; kind: string }[];
+  open: boolean;
   onClose: () => void;
+  mode: 'create' | 'edit';
+  subscription?: Subscription;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const [name, setName] = useState(sub?.name ?? '');
-  const [amount, setAmount] = useState(sub ? String(sub.amount) : '');
-  const [cadence, setCadence] = useState<SubscriptionCadence>(sub?.cadence ?? 'monthly');
-  const [startDate, setStartDate] = useState(sub?.startDate ?? today);
-  const [nextCharge, setNextCharge] = useState(sub?.nextCharge ?? today);
-  const [categoryId, setCategoryId] = useState<number>(sub?.categoryId ?? 0);
-  const [color, setColor] = useState(sub?.color ?? COLORS[0]);
-  const [notes, setNotes] = useState(sub?.notes ?? '');
-  const [active, setActive] = useState(sub?.active ?? 1);
+  const [name, setName] = useState(subscription?.name ?? '');
+  const [amount, setAmount] = useState(String(subscription?.amount ?? ''));
+  const [cadence, setCadence] = useState<SubscriptionCadence>(subscription?.cadence ?? 'monthly');
+  const [nextCharge, setNextCharge] = useState(
+    subscription?.nextCharge ?? new Date().toISOString().slice(0, 10),
+  );
+  const [color, setColor] = useState(subscription?.color ?? PALETTE[0]);
 
-  async function save() {
+  useMemo(() => {
+    setName(subscription?.name ?? '');
+    setAmount(String(subscription?.amount ?? ''));
+    setCadence(subscription?.cadence ?? 'monthly');
+    setNextCharge(subscription?.nextCharge ?? new Date().toISOString().slice(0, 10));
+    setColor(subscription?.color ?? PALETTE[0]);
+  }, [subscription?.id]);
+
+  async function commit() {
+    const n = name.trim();
     const a = Number(amount);
-    if (!name || !Number.isFinite(a) || a <= 0) return;
-    const base: Omit<Subscription, 'id' | 'createdAt'> = {
-      name,
-      amount: a,
-      currency: 'EUR',
-      cadence,
-      startDate,
-      nextCharge,
-      categoryId: categoryId || undefined,
-      color,
-      notes: notes || undefined,
-      active: (active ? 1 : 0) as 0 | 1,
-    };
-    if (sub?.id) {
-      await db.subscriptions.update(sub.id, base);
-    } else {
-      await db.subscriptions.add({ ...base, createdAt: Date.now() });
+    if (!n || !Number.isFinite(a) || a <= 0) return;
+    if (mode === 'create') {
+      await db.subscriptions.add({
+        name: n,
+        amount: a,
+        currency: 'EUR',
+        cadence,
+        nextCharge,
+        startDate: nextCharge,
+        color,
+        active: 1,
+        createdAt: Date.now(),
+      });
+    } else if (subscription?.id) {
+      await db.subscriptions.update(subscription.id, {
+        name: n,
+        amount: a,
+        cadence,
+        nextCharge,
+        color,
+      });
     }
     onClose();
   }
 
   async function remove() {
-    if (!sub?.id) return;
-    if (!window.confirm('¿Eliminar esta suscripción? No se puede deshacer.')) return;
-    await db.subscriptions.delete(sub.id);
+    if (!subscription?.id) return;
+    if (!window.confirm(`¿Borrar "${subscription.name}"?`)) return;
+    await db.subscriptions.delete(subscription.id);
     onClose();
   }
 
-  function autoNext() {
-    setNextCharge(nextDateFromCadence(startDate, cadence));
+  async function markPaid() {
+    if (!subscription?.id) return;
+    const next = nextDateFromCadence(nextCharge, cadence);
+    await db.subscriptions.update(subscription.id, { nextCharge: next });
+    setNextCharge(next);
   }
 
   return (
-    <div className="space-y-3">
-      <Input
-        label="Nombre"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Netflix"
-        autoFocus={!sub}
-      />
-      <div className="grid grid-cols-2 gap-3">
-        <Input
-          label="Importe (€)"
-          type="number"
-          inputMode="decimal"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
-        <Select
-          label="Cadencia"
-          value={cadence}
-          onChange={(e) => setCadence(e.target.value as SubscriptionCadence)}
-        >
-          <option value="weekly">Semanal</option>
-          <option value="biweekly">Quincenal</option>
-          <option value="monthly">Mensual</option>
-          <option value="quarterly">Trimestral</option>
-          <option value="yearly">Anual</option>
-        </Select>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Input
-          label="Inicio"
-          type="date"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-        />
-        <Input
-          label="Próximo cobro"
-          type="date"
-          value={nextCharge}
-          onChange={(e) => setNextCharge(e.target.value)}
-        />
-      </div>
-      <button onClick={autoNext} className="press text-xs text-info flex items-center gap-1">
-        <Icon name="calendar" size={14} /> Calcular próximo cobro desde inicio + cadencia
-      </button>
-      <Select
-        label="Categoría"
-        value={categoryId}
-        onChange={(e) => setCategoryId(Number(e.target.value))}
-      >
-        <option value={0}>Sin categoría</option>
-        {categories
-          .filter((c) => c.kind === 'expense')
-          .map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-      </Select>
-      <div>
-        <p className="block text-xs text-muted mb-1.5">Color</p>
-        <div className="flex gap-2 flex-wrap">
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              onClick={() => setColor(c)}
-              className={`w-8 h-8 rounded-full press ${color === c ? 'ring-2 ring-text/70' : ''}`}
-              style={{ background: c }}
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={mode === 'create' ? 'Nueva suscripción' : (subscription?.name ?? 'Editar suscripción')}
+    >
+      <div className="space-y-3 font-mono">
+        <label className="block">
+          <span className="text-mono9 text-dim uppercase tracking-widest">NAME</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            data-testid="sub-name-input"
+            className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono12 text-text focus:outline-none focus:border-borderStrong"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <label>
+            <span className="text-mono9 text-dim uppercase tracking-widest">AMOUNT · €</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono12 text-text focus:outline-none focus:border-borderStrong"
             />
-          ))}
+          </label>
+          <label>
+            <span className="text-mono9 text-dim uppercase tracking-widest">NEXT</span>
+            <input
+              type="date"
+              value={nextCharge}
+              onChange={(e) => setNextCharge(e.target.value)}
+              className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono11 text-text focus:outline-none focus:border-borderStrong"
+            />
+          </label>
+        </div>
+        <div>
+          <span className="text-mono9 text-dim uppercase tracking-widest">CADENCE</span>
+          <div className="mt-1 grid grid-cols-5 gap-1">
+            {CADENCES.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCadence(c)}
+                aria-pressed={cadence === c}
+                className={[
+                  'py-1.5 border rounded-xs text-mono9 tracking-widest',
+                  cadence === c
+                    ? 'text-accent bg-surface border-accent'
+                    : 'text-muted border-border',
+                ].join(' ')}
+              >
+                {c.slice(0, 3).toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="text-mono9 text-dim uppercase tracking-widest">COLOR</span>
+          <div className="mt-1 flex gap-1.5 flex-wrap">
+            {PALETTE.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                aria-pressed={color === c}
+                className={[
+                  'w-7 h-7 rounded-xs border',
+                  color === c ? 'border-accent' : 'border-border',
+                ].join(' ')}
+                style={{ background: c }}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Btn variant="solid" block onClick={commit} disabled={!name.trim() || !amount}>
+            {mode === 'create' ? 'CREATE' : 'SAVE'}
+          </Btn>
+          {mode === 'edit' && (
+            <>
+              <Btn variant="outline" onClick={markPaid}>
+                NEXT+1
+              </Btn>
+              <Btn variant="danger" onClick={remove}>
+                DELETE
+              </Btn>
+            </>
+          )}
         </div>
       </div>
-      <Textarea
-        label="Notas"
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        placeholder="Opcional"
-      />
-      <label className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-elevated border border-border">
-        <span className="text-sm">Activa</span>
-        <input
-          type="checkbox"
-          checked={!!active}
-          onChange={(e) => setActive(e.target.checked ? 1 : 0)}
-          className="w-5 h-5 accent-accent"
-        />
-      </label>
-      <div className="flex gap-2 pt-2">
-        <Button variant="secondary" full onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button variant="primary" full onClick={save}>
-          Guardar
-        </Button>
-      </div>
-      {sub?.id && (
-        <Button variant="danger" full leading={<Icon name="trash" size={16} />} onClick={remove}>
-          Eliminar
-        </Button>
-      )}
-    </div>
-  );
-}
-
-function DetectRecurring({
-  recurringExpenses,
-  existing,
-  onClose,
-}: {
-  recurringExpenses: {
-    id?: number;
-    signature: string;
-    averageAmount: number;
-    cadenceDays: number;
-    lastSeen: string;
-    categoryId?: number;
-  }[];
-  existing: Subscription[];
-  onClose: () => void;
-}) {
-  const existingSigs = new Set(existing.map((s) => s.detectedSignature).filter(Boolean));
-  const candidates = recurringExpenses.filter((r) => !existingSigs.has(r.signature));
-
-  async function add(r: (typeof recurringExpenses)[number]) {
-    const cadence: SubscriptionCadence =
-      r.cadenceDays <= 10
-        ? 'weekly'
-        : r.cadenceDays <= 20
-          ? 'biweekly'
-          : r.cadenceDays <= 40
-            ? 'monthly'
-            : r.cadenceDays <= 100
-              ? 'quarterly'
-              : 'yearly';
-    const nextCharge = nextDateFromCadence(r.lastSeen, cadence);
-    const colorIdx = hashSignature(r.signature) % COLORS.length;
-    await db.subscriptions.add({
-      name: r.signature.replace(/\b\w/g, (c) => c.toUpperCase()),
-      amount: r.averageAmount,
-      currency: 'EUR',
-      cadence,
-      startDate: r.lastSeen,
-      nextCharge,
-      categoryId: r.categoryId,
-      color: COLORS[colorIdx],
-      active: 1,
-      detectedSignature: r.signature,
-      createdAt: Date.now(),
-    });
-  }
-
-  if (candidates.length === 0) {
-    return (
-      <div className="space-y-3">
-        <p className="text-sm text-muted">
-          No hay recurrentes nuevos por añadir. Todos ya están como suscripción o aún no se han
-          detectado.
-        </p>
-        <Button full variant="secondary" onClick={onClose}>
-          Cerrar
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      <p className="text-sm text-muted">Gastos recurrentes detectados. Añade los que quieras.</p>
-      <ul className="divide-y divide-border border border-border rounded-xl">
-        {candidates.map((r) => (
-          <li key={r.id} className="p-3 flex items-center gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm truncate capitalize">{r.signature}</p>
-              <p className="text-[11px] text-muted">
-                ~{r.cadenceDays} días · {formatMoney(r.averageAmount)}
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={async () => {
-                await add(r);
-              }}
-            >
-              Añadir
-            </Button>
-          </li>
-        ))}
-      </ul>
-      <Button full variant="secondary" onClick={onClose}>
-        Cerrar
-      </Button>
-    </div>
+    </Sheet>
   );
 }

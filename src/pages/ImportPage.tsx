@@ -1,224 +1,288 @@
+/**
+ * ImportPage — F10 rewrite (ScrImport). Terminal-style import con detección
+ * automática de banco, column mapping preview, preview table con score de
+ * confidence por fila (filas <0.8 en warning), y acción IMPORTAR que aplica
+ * categorize() sobre cada fila antes de persistir.
+ */
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { db } from '@/db/database';
-import { parseStatement, toTransaction, type ImportResult } from '@/lib/importers';
-import { categorize } from '@/lib/categorize';
-import { detectRecurring } from '@/lib/recurring';
-import { TopBar } from '@/ui/TopBar';
-import { Card } from '@/ui/Card';
-import { Button } from '@/ui/Button';
+import { categorize, invalidateRulesCache } from '@/lib/categorize';
+import { parseStatement, toTransaction, type ImportResult, type ParsedRow } from '@/lib/importers';
+import { importConfidence } from '@/lib/importConfidence';
+import { formatMoney } from '@/lib/format';
+import { TopBarV2 } from '@/ui/TopBarV2';
 import { Icon } from '@/ui/Icon';
-import { Select } from '@/ui/Input';
-import { formatDate, formatMoney } from '@/lib/format';
+import { Badge, Btn, Section } from '@/ui/primitives';
+import type { Bank, Category } from '@/types';
+
+type Phase = 'idle' | 'preview' | 'importing' | 'done' | 'error';
+
+interface PreviewRow {
+  row: ParsedRow;
+  confidence: number;
+  predictedCategoryId?: number;
+}
 
 export function ImportPage() {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [result, setResult] = useState<ImportResult | null>(null);
-  const [accountId, setAccountId] = useState<number>(0);
-  const [forcedBank, setForcedBank] = useState<'auto' | 'n26' | 'bbva'>('auto');
-  const [running, setRunning] = useState(false);
-  const [summary, setSummary] = useState<{ added: number; skipped: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
   const accounts = useLiveQuery(() => db.accounts.toArray(), []);
+  const categories = useLiveQuery(() => db.categories.toArray(), []);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [filename, setFilename] = useState('');
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [preview, setPreview] = useState<PreviewRow[]>([]);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [imported, setImported] = useState<number>(0);
 
-  async function onFile(file: File) {
+  const catById = useMemo(() => {
+    const m = new Map<number, Category>();
+    (categories ?? []).forEach((c) => c.id && m.set(c.id, c));
+    return m;
+  }, [categories]);
+
+  async function onPick(file: File) {
     setError(null);
-    setSummary(null);
+    setFilename(file.name);
     try {
       const text = await file.text();
       const parsed = parseStatement(text);
-      if (forcedBank !== 'auto') parsed.bank = forcedBank;
       setResult(parsed);
-      if (parsed.rows.length === 0) {
-        setError('No se ha podido leer ningún movimiento. ¿El formato es correcto?');
-      }
-      if (!accountId && accounts && accounts[0]?.id) setAccountId(accounts[0].id);
+      const prevs: PreviewRow[] = await Promise.all(
+        parsed.rows.map(async (r) => {
+          const kind: 'expense' | 'income' = r.amount < 0 ? 'expense' : 'income';
+          const predicted = await categorize({
+            description: r.description,
+            merchant: r.merchant,
+            kind,
+          });
+          return {
+            row: r,
+            confidence: importConfidence({
+              date: r.date,
+              amount: Math.abs(r.amount),
+              description: r.description,
+              merchant: r.merchant,
+              kind,
+            }),
+            predictedCategoryId: predicted,
+          };
+        }),
+      );
+      setPreview(prevs);
+      setPhase('preview');
     } catch (e) {
-      setError('Error al leer el archivo: ' + (e as Error).message);
+      setError(e instanceof Error ? e.message : String(e));
+      setPhase('error');
     }
   }
 
   async function doImport() {
-    if (!result) return;
-    const accId = accountId || accounts?.[0]?.id;
-    if (!accId) {
-      setError('Selecciona una cuenta');
-      return;
-    }
-    setRunning(true);
-    let added = 0;
-    let skipped = 0;
+    if (!result || !accounts?.[0]?.id) return;
+    setPhase('importing');
     try {
-      await db.transaction(
-        'rw',
-        [db.transactions, db.rules, db.categories, db.categoryGroups],
-        async () => {
-          for (const row of result.rows) {
-            const base = toTransaction(accId, result.bank, row);
-            if (base.importHash) {
-              const exists = await db.transactions
+      const accountId = accounts[0].id;
+      let added = 0;
+      await db.transaction('rw', db.transactions, async () => {
+        for (const p of preview) {
+          const payload = toTransaction(accountId, result.bank, p.row);
+          payload.categoryId = p.predictedCategoryId;
+          const exists = payload.importHash
+            ? await db.transactions
                 .where('[accountId+importHash]')
-                .equals([accId, base.importHash])
-                .first();
-              if (exists) {
-                skipped++;
-                continue;
-              }
-            }
-            const catId = await categorize({
-              description: base.description,
-              merchant: base.merchant,
-              kind: base.kind,
-            });
-            await db.transactions.add({ ...base, categoryId: catId });
-            added++;
-          }
-        },
-      );
-      await detectRecurring();
-      setSummary({ added, skipped });
-      setResult(null);
+                .equals([accountId, payload.importHash])
+                .first()
+            : undefined;
+          if (exists) continue;
+          await db.transactions.add(payload);
+          added++;
+        }
+      });
+      setImported(added);
+      setPhase('done');
+      invalidateRulesCache();
     } catch (e) {
-      setError('Error durante la importación: ' + (e as Error).message);
-    } finally {
-      setRunning(false);
+      setError(e instanceof Error ? e.message : String(e));
+      setPhase('error');
     }
   }
 
+  const warningCount = preview.filter((p) => p.confidence < 0.8).length;
+  const okCount = preview.length - warningCount;
+
   return (
     <>
-      <TopBar title="Importar" subtitle="Extractos de N26 y BBVA" />
-      <div className="scroll-area flex-1 px-4 pb-6 space-y-4">
-        <Card>
-          <h3 className="text-sm font-semibold">Banco</h3>
-          <p className="text-xs text-muted mt-1">
-            Si lo dejas en auto, Saldo detecta el formato. Si falla, fuérzalo manualmente.
-          </p>
-          <div className="mt-3">
-            <Select
-              value={forcedBank}
-              onChange={(e) => setForcedBank(e.target.value as typeof forcedBank)}
-            >
-              <option value="auto">Auto detectar</option>
-              <option value="n26">N26</option>
-              <option value="bbva">BBVA</option>
-            </Select>
-          </div>
-        </Card>
-
-        <Card>
-          <h3 className="text-sm font-semibold">Cuenta destino</h3>
-          <div className="mt-3">
-            <Select value={accountId} onChange={(e) => setAccountId(Number(e.target.value))}>
-              {accounts?.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </Card>
-
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,text/csv,text/plain"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onFile(f);
-            e.target.value = '';
-          }}
-        />
-
-        <Button
-          variant="primary"
-          full
-          size="lg"
-          leading={<Icon name="import" size={18} />}
-          onClick={() => fileRef.current?.click()}
-        >
-          Elegir archivo CSV
-        </Button>
-
-        {error && (
-          <Card className="border-danger/30 bg-dangerDim/40">
-            <div className="flex items-start gap-2">
-              <Icon name="alert" size={18} className="text-danger mt-0.5" />
-              <p className="text-sm text-danger">{error}</p>
+      <TopBarV2
+        title="saldo@local"
+        sub="IMPORT"
+        right={
+          phase === 'preview' ? (
+            <Badge tone={warningCount === 0 ? 'ok' : 'warn'}>
+              {okCount} OK · {warningCount} REVIEW
+            </Badge>
+          ) : null
+        }
+      />
+      <div className="scroll-area flex-1 pb-6" data-testid="import-page">
+        {phase === 'idle' && (
+          <div className="px-3.5 py-6 flex flex-col items-center text-center">
+            <div className="font-mono text-mono10 text-dim tracking-widest uppercase mb-3">
+              CSV · N26 / BBVA / generic
             </div>
-          </Card>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              data-testid="import-file-input"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void onPick(f);
+              }}
+            />
+            <Btn variant="solid" onClick={() => fileRef.current?.click()}>
+              <Icon name="upload" size={13} /> ELEGIR_CSV
+            </Btn>
+            <p className="mt-3 font-mono text-mono9 text-dim max-w-xs">
+              El archivo se procesa en tu dispositivo. No sale de Saldo.
+            </p>
+          </div>
         )}
 
-        {summary && (
-          <Card className="border-accent/30">
-            <div className="flex items-start gap-2">
-              <Icon name="check" size={18} className="text-accent mt-0.5" />
-              <div>
-                <p className="text-sm font-medium">Importación completada</p>
-                <p className="text-xs text-muted mt-1 tabular">
-                  Añadidos: {summary.added} · Duplicados omitidos: {summary.skipped}
-                </p>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {result && (
-          <Card>
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">
-                Previsualización
-                <span className="ml-2 chip">{result.bank.toUpperCase()}</span>
-              </h3>
-              <span className="text-xs text-muted tabular">
-                {result.rows.length} válidas · {result.skipped} ignoradas
-              </span>
-            </div>
-            <div className="mt-3 max-h-72 scroll-area -mx-4 px-4 divide-y divide-border">
-              {result.rows.slice(0, 50).map((r, i) => (
-                <div key={i} className="py-2 flex items-center justify-between gap-3 text-sm">
-                  <div className="min-w-0">
-                    <p className="truncate">{r.description}</p>
-                    <p className="text-[11px] text-muted">{formatDate(r.date)}</p>
+        {(phase === 'preview' || phase === 'importing' || phase === 'done') && result && (
+          <>
+            {/* Source */}
+            <section className="px-3.5 py-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <span className="w-[34px] h-[34px] border border-border bg-surface rounded-xs grid place-items-center shrink-0">
+                  <Icon name="file" size={14} className="text-accent" />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-mono text-mono12 text-text truncate">{filename}</div>
+                  <div className="font-mono text-mono9 text-dim mt-0.5">
+                    {result.totalLines} filas · {result.rows.length} válidas · {result.skipped}{' '}
+                    saltadas
                   </div>
-                  <span className={`tabular ${r.amount < 0 ? 'text-danger' : 'text-accent'}`}>
-                    {r.amount < 0 ? '-' : '+'}
-                    {formatMoney(Math.abs(r.amount))}
-                  </span>
                 </div>
-              ))}
-              {result.rows.length > 50 && (
-                <p className="py-2 text-xs text-muted text-center">
-                  ...y {result.rows.length - 50} más
-                </p>
-              )}
+                <BankBadge bank={result.bank} />
+              </div>
+            </section>
+
+            {/* Preview table */}
+            <div className="px-3.5 py-2.5 bg-surface border-b border-border font-mono text-mono9 text-dim tracking-widest uppercase">
+              PREVIEW · primeras {Math.min(20, preview.length)} filas
             </div>
-            <div className="flex gap-2 mt-4">
-              <Button variant="secondary" full onClick={() => setResult(null)}>
-                Cancelar
-              </Button>
-              <Button variant="primary" full onClick={doImport} disabled={running || !result}>
-                {running ? 'Importando...' : `Importar ${result.rows.length}`}
-              </Button>
-            </div>
-          </Card>
+            <ul>
+              {preview.slice(0, 20).map((p, i) => {
+                const low = p.confidence < 0.8;
+                const amount = Math.abs(p.row.amount);
+                const isIncome = p.row.amount > 0;
+                const cat = p.predictedCategoryId ? catById.get(p.predictedCategoryId) : undefined;
+                return (
+                  <li
+                    key={i}
+                    className={[
+                      'px-3.5 py-2 border-b border-border',
+                      low ? 'bg-[rgba(212,165,106,.06)]' : '',
+                    ].join(' ')}
+                    data-testid={`preview-row-${i}`}
+                  >
+                    <div className="flex justify-between font-mono text-[10.5px] mb-0.5">
+                      <span className="text-dim">{p.row.date}</span>
+                      <span className={isIncome ? 'text-accent' : 'text-text'}>
+                        {isIncome ? '+' : '−'}
+                        {formatMoney(amount)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between font-mono text-[10px] items-center gap-2">
+                      <span className="text-text truncate">{p.row.description}</span>
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        <span className={low ? 'text-warning' : 'text-muted'}>
+                          {cat?.name ?? '???'}
+                        </span>
+                        <span className={low ? 'text-warning' : 'text-dim'}>
+                          {Math.round(p.confidence * 100)}%
+                        </span>
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {phase === 'preview' && (
+              <Section title="ACTIONS">
+                <div className="flex gap-2">
+                  <Btn
+                    variant="outline"
+                    block
+                    onClick={() => {
+                      setResult(null);
+                      setPreview([]);
+                      setPhase('idle');
+                    }}
+                  >
+                    CANCELAR
+                  </Btn>
+                  <Btn variant="solid" block onClick={doImport} data-testid="import-commit">
+                    IMPORTAR {preview.length} TX
+                  </Btn>
+                </div>
+              </Section>
+            )}
+
+            {phase === 'importing' && (
+              <div className="px-3.5 py-4 font-mono text-mono10 text-accent">
+                … escribiendo transacciones
+              </div>
+            )}
+
+            {phase === 'done' && (
+              <div className="px-3.5 py-4">
+                <div className="font-mono text-mono11 text-accent">
+                  ✓ {imported} tx importadas ({preview.length - imported} duplicadas omitidas)
+                </div>
+                <Btn
+                  variant="outline"
+                  block
+                  onClick={() => {
+                    setResult(null);
+                    setPreview([]);
+                    setPhase('idle');
+                    setFilename('');
+                    setImported(0);
+                  }}
+                  className="mt-2"
+                >
+                  NUEVA_IMPORTACIÓN
+                </Btn>
+              </div>
+            )}
+          </>
         )}
 
-        <Card>
-          <h3 className="text-sm font-semibold">Cómo exportar desde tu banco</h3>
-          <ul className="mt-2 space-y-2 text-xs text-muted">
-            <li>
-              <b className="text-text">N26:</b> app → Movimientos → Ajustes → Exportar CSV.
-            </li>
-            <li>
-              <b className="text-text">BBVA:</b> web bbva.es → Posición global → Cuenta →
-              Movimientos → icono de descarga → CSV.
-            </li>
-          </ul>
-        </Card>
+        {phase === 'error' && (
+          <div className="px-3.5 py-4 font-mono text-mono10 text-danger">
+            ✗ {error}
+            <Btn
+              variant="outline"
+              block
+              onClick={() => {
+                setError(null);
+                setPhase('idle');
+              }}
+              className="mt-2"
+            >
+              REINTENTAR
+            </Btn>
+          </div>
+        )}
       </div>
     </>
   );
+}
+
+function BankBadge({ bank }: { bank: Bank }) {
+  const tone = bank === 'other' ? 'muted' : 'ok';
+  return <Badge tone={tone}>{bank.toUpperCase()}</Badge>;
 }

@@ -33,6 +33,7 @@ export interface LockState {
   setAutoLockMs(ms: number): void;
   registerActivity(): void;
   wipeVault(): Promise<void>;
+  changePin(oldPin: string, newPin: string): Promise<boolean>;
   // Test helpers — NOT for UI use.
   _setStatus(status: LockStatus): void;
 }
@@ -121,6 +122,26 @@ export const useLock = create<LockState>((set, get) => ({
       failedAttempts: 0,
       lockedOutUntil: null,
     });
+  },
+
+  async changePin(oldPin: string, newPin: string) {
+    if (newPin.length < 4) throw new Error('PIN minimo 4 digitos.');
+    const vault = await loadVault();
+    if (!vault) throw new Error('No hay vault.');
+    let oldPinKey: CryptoKey;
+    let master: CryptoKey;
+    try {
+      oldPinKey = await derivePinKey(oldPin, base64ToBytes(vault.kdfSalt));
+      master = await unwrapMasterKey(vault.wrappedKey, vault.wrapIv, oldPinKey);
+    } catch {
+      return false;
+    }
+    const newSalt = randomBytes(KDF_SALT_BYTES);
+    const newPinKey = await derivePinKey(newPin, newSalt);
+    const { wrapped, iv } = await wrapMasterKey(master, newPinKey);
+    await saveVaultMeta(wrapped, iv, bytesToBase64(newSalt));
+    set({ master, failedAttempts: 0, lockedOutUntil: null });
+    return true;
   },
 
   _setStatus(status: LockStatus) {

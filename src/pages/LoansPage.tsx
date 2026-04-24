@@ -1,402 +1,323 @@
+/**
+ * LoansPage — F10 rewrite (ScrLoans). Hero DEUDA_TOTAL en danger + cuota
+ * mensual agregada + lista de préstamos con barra de % pagado, TAE y
+ * próxima cuota usando amortize() existente.
+ */
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useState } from 'react';
 import { db } from '@/db/database';
+import { formatMoney } from '@/lib/format';
 import { amortize, monthsElapsed } from '@/lib/loan';
-import { formatDateLong, formatMoney } from '@/lib/format';
-import { TopBar } from '@/ui/TopBar';
-import { Card } from '@/ui/Card';
-import { Button } from '@/ui/Button';
+import { TopBarV2 } from '@/ui/TopBarV2';
 import { Icon } from '@/ui/Icon';
+import { Btn } from '@/ui/primitives';
 import { Sheet } from '@/ui/Sheet';
-import { Input, Textarea } from '@/ui/Input';
-import { EmptyState } from '@/ui/EmptyState';
 import type { Loan } from '@/types';
-
-const COLORS = ['#F59E0B', '#60A5FA', '#A78BFA', '#F472B6', '#10B981', '#FB7185'];
 
 interface Props {
   onBack: () => void;
+}
+
+const PALETTE = ['#F87171', '#FB7185', '#F59E0B', '#FBBF24', '#A78BFA', '#60A5FA'];
+
+interface LoanStats {
+  loan: Loan;
+  remaining: number;
+  paid: number;
+  pct: number; // 0..1
+  monthly: number;
+  nextPay: string;
 }
 
 export function LoansPage({ onBack }: Props) {
   const loans = useLiveQuery(() => db.loans.toArray(), []);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Loan | null>(null);
-  const [viewing, setViewing] = useState<Loan | null>(null);
 
-  const totalDebt = useMemo(() => {
-    if (!loans) return 0;
-    return loans.reduce((sum, l) => {
-      const a = amortize(l);
-      const paidMonths = monthsElapsed(l.startDate);
-      const row = a.rows[Math.min(paidMonths, a.rows.length - 1)];
-      return sum + (row?.balance ?? l.principal);
-    }, 0);
+  const stats = useMemo<LoanStats[]>(() => {
+    return (loans ?? []).map((l) => {
+      const summary = amortize(l);
+      const paidMonths = Math.min(summary.rows.length, monthsElapsed(l.startDate));
+      const paidRow = paidMonths > 0 ? summary.rows[paidMonths - 1] : undefined;
+      const remaining = paidRow?.balance ?? l.principal;
+      const paid = Math.max(0, l.principal - remaining);
+      const pct = l.principal > 0 ? paid / l.principal : 0;
+      const nextRow = summary.rows[paidMonths] ?? summary.rows[summary.rows.length - 1];
+      return {
+        loan: l,
+        remaining,
+        paid,
+        pct,
+        monthly: summary.monthlyPayment,
+        nextPay: nextRow?.date ?? '—',
+      };
+    });
   }, [loans]);
+
+  const totalDebt = stats.reduce((s, x) => s + x.remaining, 0);
+  const totalMonthly = stats.reduce((s, x) => s + x.monthly, 0);
 
   return (
     <>
-      <TopBar
-        title="Préstamos"
-        subtitle={
-          loans && loans.length > 0
-            ? `Pendiente aprox. ${formatMoney(totalDebt)}`
-            : 'Tabla de amortización'
-        }
-        leading={
-          <button onClick={onBack} className="press text-muted" aria-label="Atrás">
-            <Icon name="chevron-left" />
-          </button>
-        }
-        trailing={
+      <TopBarV2
+        title="saldo@local"
+        sub={`LOANS · ${loans?.length ?? 0}`}
+        onBack={onBack}
+        right={
           <button
+            type="button"
             onClick={() => setAddOpen(true)}
-            className="press w-9 h-9 rounded-full bg-text text-bg grid place-items-center"
             aria-label="Nuevo préstamo"
+            className="press text-accent"
+            data-testid="loan-add-btn"
           >
-            <Icon name="plus" />
+            <Icon name="plus" size={14} />
           </button>
         }
       />
-      <div className="scroll-area flex-1 px-4 pb-6 space-y-3">
-        {!loans || loans.length === 0 ? (
-          <EmptyState
-            title="Sin préstamos"
-            description="Añade un préstamo (coche, hipoteca, personal) y Saldo calcula la tabla de amortización francesa."
-            action={
-              <Button variant="primary" onClick={() => setAddOpen(true)}>
-                Nuevo préstamo
-              </Button>
-            }
-          />
-        ) : (
-          loans.map((l) => {
-            const a = amortize(l);
-            const paidMonths = monthsElapsed(l.startDate);
-            const idx = Math.min(paidMonths, a.rows.length - 1);
-            const row = a.rows[idx];
-            const pct =
-              paidMonths >= a.rows.length
-                ? 100
-                : idx >= 0
-                  ? Math.min(100, Math.round((idx / a.rows.length) * 100))
-                  : 0;
-            return (
-              <Card key={l.id}>
-                <button onClick={() => setViewing(l)} className="press w-full text-left">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ background: l.color }}
-                      />
-                      <h3 className="text-sm font-semibold truncate">{l.name}</h3>
-                    </div>
-                    <span className="text-xs text-muted tabular">{pct}%</span>
+      <div className="scroll-area flex-1 pb-6" data-testid="loans-page">
+        <section className="px-3.5 py-3.5 border-b border-border">
+          <div className="font-mono text-mono9 text-dim tracking-widest uppercase">DEUDA_TOTAL</div>
+          <div className="font-mono text-[26px] tabular text-danger mt-1">
+            −{formatMoney(totalDebt)}
+          </div>
+          <div className="font-mono text-mono11 text-muted mt-2">
+            cuota mensual: <span className="text-text">{formatMoney(totalMonthly)}</span>
+          </div>
+        </section>
+
+        {stats.map(({ loan, remaining, paid, pct, monthly, nextPay }) => (
+          <section
+            key={loan.id}
+            className="px-3.5 py-3.5 border-b border-border"
+            data-testid={`loan-${loan.id}`}
+          >
+            <button
+              type="button"
+              onClick={() => setEditing(loan)}
+              className="w-full text-left press"
+            >
+              <div className="flex justify-between mb-2">
+                <div className="min-w-0">
+                  <div className="font-mono text-mono12 text-text truncate">{loan.name}</div>
+                  <div className="font-mono text-mono9 text-dim mt-0.5">
+                    TAE {loan.interestRate}% · próx. cuota {nextPay}
                   </div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                    <div>
-                      <p className="text-dim">Cuota</p>
-                      <p className="tabular font-medium mt-0.5">{formatMoney(a.monthlyPayment)}</p>
-                    </div>
-                    <div>
-                      <p className="text-dim">Pendiente</p>
-                      <p className="tabular font-medium mt-0.5">
-                        {formatMoney(row?.balance ?? l.principal)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-dim">Total intereses</p>
-                      <p className="tabular font-medium mt-0.5">{formatMoney(a.totalInterest)}</p>
-                    </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="font-mono text-mono12 text-text tabular">
+                    {formatMoney(remaining)}
                   </div>
-                  <div className="mt-3 h-1.5 rounded-full bg-elevated overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${pct}%`, background: l.color }}
-                    />
+                  <div className="font-mono text-mono9 text-dim mt-0.5">
+                    de {formatMoney(loan.principal)}
                   </div>
-                </button>
-              </Card>
-            );
-          })
+                </div>
+              </div>
+              <div className="h-[3px] bg-surface rounded-[1px] overflow-hidden">
+                <div
+                  className="h-full"
+                  style={{
+                    width: `${Math.min(100, pct * 100)}%`,
+                    background: loan.color ?? 'var(--color-accent)',
+                  }}
+                />
+              </div>
+              <div className="flex justify-between mt-1.5 font-mono text-mono9 text-muted">
+                <span>
+                  {(pct * 100).toFixed(1)}% pagado ({formatMoney(paid)})
+                </span>
+                <span>{formatMoney(monthly)}/mes</span>
+              </div>
+            </button>
+          </section>
+        ))}
+
+        {(loans ?? []).length === 0 && (
+          <div className="px-3.5 py-6 font-mono text-mono10 text-dim text-center">
+            Sin préstamos. Añade el primero con +.
+          </div>
         )}
       </div>
 
-      <Sheet
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        title="Nuevo préstamo"
-        maxHeight="92vh"
-      >
-        <LoanForm onClose={() => setAddOpen(false)} />
-      </Sheet>
-      <Sheet
-        open={!!editing}
-        onClose={() => setEditing(null)}
-        title="Editar préstamo"
-        maxHeight="92vh"
-      >
-        {editing && <LoanForm loan={editing} onClose={() => setEditing(null)} />}
-      </Sheet>
-      <Sheet
-        open={!!viewing}
-        onClose={() => setViewing(null)}
-        title={viewing ? viewing.name : ''}
-        maxHeight="92vh"
-      >
-        {viewing && (
-          <LoanDetail
-            loan={viewing}
-            onEdit={() => {
-              setEditing(viewing);
-              setViewing(null);
-            }}
-          />
-        )}
-      </Sheet>
+      <LoanEditor open={addOpen} onClose={() => setAddOpen(false)} mode="create" />
+      {editing && (
+        <LoanEditor open={!!editing} onClose={() => setEditing(null)} mode="edit" loan={editing} />
+      )}
     </>
   );
 }
 
-function LoanForm({ loan, onClose }: { loan?: Loan; onClose: () => void }) {
-  const today = new Date().toISOString().slice(0, 10);
+function LoanEditor({
+  open,
+  onClose,
+  mode,
+  loan,
+}: {
+  open: boolean;
+  onClose: () => void;
+  mode: 'create' | 'edit';
+  loan?: Loan;
+}) {
   const [name, setName] = useState(loan?.name ?? '');
-  const [principal, setPrincipal] = useState(loan ? String(loan.principal) : '');
-  const [rate, setRate] = useState(loan ? String(loan.interestRate) : '');
-  const [term, setTerm] = useState(loan ? String(loan.termMonths) : '');
-  const [startDate, setStartDate] = useState(loan?.startDate ?? today);
-  const [extra, setExtra] = useState(loan?.extraPayment ? String(loan.extraPayment) : '');
-  const [notes, setNotes] = useState(loan?.notes ?? '');
-  const [color, setColor] = useState(loan?.color ?? COLORS[0]);
+  const [principal, setPrincipal] = useState(String(loan?.principal ?? ''));
+  const [interestRate, setInterestRate] = useState(String(loan?.interestRate ?? '0'));
+  const [termMonths, setTermMonths] = useState(String(loan?.termMonths ?? '60'));
+  const [startDate, setStartDate] = useState(
+    loan?.startDate ?? new Date().toISOString().slice(0, 10),
+  );
+  const [extra, setExtra] = useState(String(loan?.extraPayment ?? '0'));
+  const [color, setColor] = useState(loan?.color ?? PALETTE[0]);
 
-  async function save() {
+  useMemo(() => {
+    setName(loan?.name ?? '');
+    setPrincipal(String(loan?.principal ?? ''));
+    setInterestRate(String(loan?.interestRate ?? '0'));
+    setTermMonths(String(loan?.termMonths ?? '60'));
+    setStartDate(loan?.startDate ?? new Date().toISOString().slice(0, 10));
+    setExtra(String(loan?.extraPayment ?? '0'));
+    setColor(loan?.color ?? PALETTE[0]);
+  }, [loan?.id]);
+
+  async function commit() {
+    const n = name.trim();
     const p = Number(principal);
-    const r = Number(rate);
-    const t = Number(term);
-    if (
-      !name ||
-      !Number.isFinite(p) ||
-      p <= 0 ||
-      !Number.isFinite(r) ||
-      r < 0 ||
-      !Number.isFinite(t) ||
-      t <= 0
-    )
-      return;
-    const base: Omit<Loan, 'id' | 'createdAt'> = {
-      name,
-      principal: p,
-      interestRate: r,
-      termMonths: t,
-      startDate,
-      extraPayment: extra ? Number(extra) : undefined,
-      color,
-      notes: notes || undefined,
-    };
-    if (loan?.id) await db.loans.update(loan.id, base);
-    else await db.loans.add({ ...base, createdAt: Date.now() });
+    const r = Number(interestRate);
+    const m = Number(termMonths);
+    const x = Number(extra);
+    if (!n || !Number.isFinite(p) || p <= 0) return;
+    if (!Number.isFinite(r) || r < 0) return;
+    if (!Number.isFinite(m) || m <= 0) return;
+    if (mode === 'create') {
+      await db.loans.add({
+        name: n,
+        principal: p,
+        interestRate: r,
+        termMonths: m,
+        startDate,
+        extraPayment: Number.isFinite(x) && x > 0 ? x : undefined,
+        color,
+        createdAt: Date.now(),
+      });
+    } else if (loan?.id) {
+      await db.loans.update(loan.id, {
+        name: n,
+        principal: p,
+        interestRate: r,
+        termMonths: m,
+        startDate,
+        extraPayment: Number.isFinite(x) && x > 0 ? x : undefined,
+        color,
+      });
+    }
     onClose();
   }
 
   async function remove() {
     if (!loan?.id) return;
-    if (!window.confirm('¿Eliminar este préstamo? No se puede deshacer.')) return;
+    if (!window.confirm(`¿Borrar préstamo "${loan.name}"?`)) return;
     await db.loans.delete(loan.id);
     onClose();
   }
 
-  const preview = (() => {
-    const p = Number(principal);
-    const r = Number(rate);
-    const t = Number(term);
-    if (!Number.isFinite(p) || !Number.isFinite(r) || !Number.isFinite(t) || p <= 0 || t <= 0) {
-      return null;
-    }
-    return amortize({
-      name,
-      principal: p,
-      interestRate: r,
-      termMonths: t,
-      startDate,
-      extraPayment: extra ? Number(extra) : undefined,
-      color,
-      createdAt: 0,
-    });
-  })();
-
   return (
-    <div className="space-y-3">
-      <Input
-        label="Nombre"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Coche, hipoteca..."
-        autoFocus={!loan}
-      />
-      <div className="grid grid-cols-2 gap-3">
-        <Input
-          label="Capital (€)"
-          type="number"
-          inputMode="decimal"
-          value={principal}
-          onChange={(e) => setPrincipal(e.target.value)}
-          placeholder="20000"
-        />
-        <Input
-          label="TAE / interés anual (%)"
-          type="number"
-          inputMode="decimal"
-          value={rate}
-          onChange={(e) => setRate(e.target.value)}
-          placeholder="5.5"
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Input
-          label="Plazo (meses)"
-          type="number"
-          inputMode="numeric"
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          placeholder="60"
-        />
-        <Input
-          label="Inicio"
-          type="date"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-        />
-      </div>
-      <Input
-        label="Amortización anticipada extra/mes (opcional)"
-        type="number"
-        inputMode="decimal"
-        value={extra}
-        onChange={(e) => setExtra(e.target.value)}
-        placeholder="0"
-        hint="Pagas esto extra cada mes para terminar antes"
-      />
-      <div>
-        <p className="block text-xs text-muted mb-1.5">Color</p>
-        <div className="flex gap-2 flex-wrap">
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              onClick={() => setColor(c)}
-              className={`w-8 h-8 rounded-full press ${color === c ? 'ring-2 ring-text/70' : ''}`}
-              style={{ background: c }}
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={mode === 'create' ? 'Nuevo préstamo' : (loan?.name ?? 'Editar préstamo')}
+    >
+      <div className="space-y-3 font-mono">
+        <label className="block">
+          <span className="text-mono9 text-dim uppercase tracking-widest">NAME</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            data-testid="loan-name-input"
+            className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono12 text-text focus:outline-none focus:border-borderStrong"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <label>
+            <span className="text-mono9 text-dim uppercase tracking-widest">PRINCIPAL · €</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={principal}
+              onChange={(e) => setPrincipal(e.target.value)}
+              className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono12 text-text focus:outline-none focus:border-borderStrong"
             />
-          ))}
+          </label>
+          <label>
+            <span className="text-mono9 text-dim uppercase tracking-widest">TAE · %</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              value={interestRate}
+              onChange={(e) => setInterestRate(e.target.value)}
+              className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono12 text-text focus:outline-none focus:border-borderStrong"
+            />
+          </label>
         </div>
-      </div>
-      <Textarea label="Notas" value={notes} onChange={(e) => setNotes(e.target.value)} />
-
-      {preview && (
-        <Card>
-          <p className="text-xs text-muted uppercase tracking-wider">Simulación</p>
-          <div className="grid grid-cols-2 gap-3 mt-2 text-sm">
-            <div>
-              <p className="text-dim text-[11px]">Cuota mensual</p>
-              <p className="tabular font-semibold">{formatMoney(preview.monthlyPayment)}</p>
-            </div>
-            <div>
-              <p className="text-dim text-[11px]">Total pagado</p>
-              <p className="tabular font-semibold">{formatMoney(preview.totalPaid)}</p>
-            </div>
-            <div>
-              <p className="text-dim text-[11px]">Intereses</p>
-              <p className="tabular font-semibold text-danger">
-                {formatMoney(preview.totalInterest)}
-              </p>
-            </div>
-            <div>
-              <p className="text-dim text-[11px]">Acaba</p>
-              <p className="tabular font-semibold">{formatDateLong(preview.endDate)}</p>
-            </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label>
+            <span className="text-mono9 text-dim uppercase tracking-widest">TERM · meses</span>
+            <input
+              type="number"
+              value={termMonths}
+              onChange={(e) => setTermMonths(e.target.value)}
+              className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono12 text-text focus:outline-none focus:border-borderStrong"
+            />
+          </label>
+          <label>
+            <span className="text-mono9 text-dim uppercase tracking-widest">START</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono11 text-text focus:outline-none focus:border-borderStrong"
+            />
+          </label>
+        </div>
+        <label className="block">
+          <span className="text-mono9 text-dim uppercase tracking-widest">EXTRA · €/mes</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={extra}
+            onChange={(e) => setExtra(e.target.value)}
+            className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono12 text-text focus:outline-none focus:border-borderStrong"
+          />
+        </label>
+        <div>
+          <span className="text-mono9 text-dim uppercase tracking-widest">COLOR</span>
+          <div className="mt-1 flex gap-1.5 flex-wrap">
+            {PALETTE.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                aria-pressed={color === c}
+                className={[
+                  'w-7 h-7 rounded-xs border',
+                  color === c ? 'border-accent' : 'border-border',
+                ].join(' ')}
+                style={{ background: c }}
+              />
+            ))}
           </div>
-        </Card>
-      )}
-
-      <div className="flex gap-2 pt-2">
-        <Button variant="secondary" full onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button variant="primary" full onClick={save}>
-          Guardar
-        </Button>
-      </div>
-      {loan?.id && (
-        <Button variant="danger" full leading={<Icon name="trash" size={16} />} onClick={remove}>
-          Eliminar
-        </Button>
-      )}
-    </div>
-  );
-}
-
-function LoanDetail({ loan, onEdit }: { loan: Loan; onEdit: () => void }) {
-  const a = useMemo(() => amortize(loan), [loan]);
-  const paidMonths = monthsElapsed(loan.startDate);
-
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
-        <Card>
-          <p className="text-[11px] text-muted uppercase tracking-wider">Cuota</p>
-          <p className="tabular font-semibold mt-1">{formatMoney(a.monthlyPayment)}</p>
-        </Card>
-        <Card>
-          <p className="text-[11px] text-muted uppercase tracking-wider">Plazo</p>
-          <p className="tabular font-semibold mt-1">{a.months} meses</p>
-        </Card>
-        <Card>
-          <p className="text-[11px] text-muted uppercase tracking-wider">Total intereses</p>
-          <p className="tabular font-semibold mt-1 text-danger">{formatMoney(a.totalInterest)}</p>
-        </Card>
-        <Card>
-          <p className="text-[11px] text-muted uppercase tracking-wider">Fin</p>
-          <p className="tabular font-semibold mt-1">{formatDateLong(a.endDate)}</p>
-        </Card>
-      </div>
-      <Button variant="secondary" full onClick={onEdit} leading={<Icon name="edit" size={16} />}>
-        Editar
-      </Button>
-      <Card padded={false}>
-        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Tabla de amortización</h3>
-          <p className="text-[11px] text-muted">
-            Pagos: {paidMonths} / {a.months}
-          </p>
         </div>
-        <div className="max-h-[50vh] scroll-area">
-          <table className="w-full text-xs tabular">
-            <thead className="sticky top-0 bg-surface border-b border-border">
-              <tr className="text-muted">
-                <th className="text-left px-3 py-2 font-medium">#</th>
-                <th className="text-left px-3 py-2 font-medium">Fecha</th>
-                <th className="text-right px-3 py-2 font-medium">Capital</th>
-                <th className="text-right px-3 py-2 font-medium">Interés</th>
-                <th className="text-right px-3 py-2 font-medium">Pendiente</th>
-              </tr>
-            </thead>
-            <tbody>
-              {a.rows.map((r, i) => (
-                <tr
-                  key={i}
-                  className={`border-b border-border/50 ${i < paidMonths ? 'opacity-50' : ''}`}
-                >
-                  <td className="px-3 py-2">{r.month}</td>
-                  <td className="px-3 py-2">{r.date.slice(0, 7)}</td>
-                  <td className="px-3 py-2 text-right">{formatMoney(r.principal)}</td>
-                  <td className="px-3 py-2 text-right text-danger">{formatMoney(r.interest)}</td>
-                  <td className="px-3 py-2 text-right font-medium">{formatMoney(r.balance)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="flex gap-2">
+          <Btn variant="solid" block onClick={commit} disabled={!name.trim() || !principal}>
+            {mode === 'create' ? 'CREATE' : 'SAVE'}
+          </Btn>
+          {mode === 'edit' && (
+            <Btn variant="danger" onClick={remove}>
+              DELETE
+            </Btn>
+          )}
         </div>
-      </Card>
-    </div>
+      </div>
+    </Sheet>
   );
 }

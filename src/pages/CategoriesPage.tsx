@@ -1,14 +1,21 @@
+/**
+ * CategoriesPage — F10 rewrite (ScrCategories). Terminal style: lista por
+ * grupo ordenada por gasto del mes activo, avatar cuadrado 30×30 con inicial
+ * + color, sparkline del grupo a la derecha. CRUD completo de grupos y
+ * categorías via sheets.
+ */
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useState } from 'react';
 import { db } from '@/db/database';
-import { TopBar } from '@/ui/TopBar';
-import { Card } from '@/ui/Card';
-import { Button } from '@/ui/Button';
-import { Icon } from '@/ui/Icon';
-import { Sheet } from '@/ui/Sheet';
-import { Input, Select } from '@/ui/Input';
-import { SegmentedControl } from '@/ui/SegmentedControl';
+import { expensesByGroup, txByMonth } from '@/db/queries';
+import { formatMoney } from '@/lib/format';
 import { invalidateRulesCache } from '@/lib/categorize';
+import { TopBarV2 } from '@/ui/TopBarV2';
+import { Icon } from '@/ui/Icon';
+import { Btn } from '@/ui/primitives';
+import { Spark } from '@/ui/charts';
+import { Sheet } from '@/ui/Sheet';
+import { useApp } from '@/stores/app';
 import type { Category, CategoryGroup } from '@/types';
 
 interface Props {
@@ -34,387 +41,504 @@ const PALETTE = [
 ];
 
 export function CategoriesPage({ onBack }: Props) {
+  const month = useApp((s) => s.month);
   const groups = useLiveQuery(() => db.categoryGroups.toArray(), []);
   const categories = useLiveQuery(() => db.categories.toArray(), []);
-  const [editingCat, setEditingCat] = useState<Category | 'new' | null>(null);
-  const [editingGroup, setEditingGroup] = useState<CategoryGroup | 'new' | null>(null);
+  const monthTxs = useLiveQuery(() => txByMonth(month), [month]);
+  const expByGroup = useLiveQuery(() => expensesByGroup(month), [month]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<number | 'none', Category[]>();
-    for (const c of categories ?? []) {
-      const k = c.groupId ?? 'none';
-      const arr = map.get(k) ?? [];
-      arr.push(c);
-      map.set(k, arr);
+  const [openGroup, setOpenGroup] = useState<CategoryGroup | null>(null);
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const [newCatOpen, setNewCatOpen] = useState(false);
+  const [addMenu, setAddMenu] = useState(false);
+
+  const rows = useMemo(() => {
+    const gidByCat = new Map<number, number>();
+    (categories ?? []).forEach((c) => c.id && c.groupId && gidByCat.set(c.id, c.groupId));
+
+    const txCountByGroup = new Map<number, number>();
+    for (const t of monthTxs ?? []) {
+      if (t.kind !== 'expense' || !t.categoryId) continue;
+      const gid = gidByCat.get(t.categoryId);
+      if (gid) txCountByGroup.set(gid, (txCountByGroup.get(gid) ?? 0) + 1);
     }
-    return map;
-  }, [categories]);
 
-  const orderedGroups = useMemo(() => {
-    return [...(groups ?? [])].sort((a, b) => a.order - b.order);
-  }, [groups]);
+    const spend = new Map<number, number>();
+    expByGroup?.forEach((amt, key) => {
+      if (typeof key === 'number') spend.set(key, amt);
+    });
+    const totalExp = [...spend.values()].reduce((s, v) => s + v, 0);
+
+    // Sparkline 10 days per group: last 10 days of monthTxs bucketed.
+    const daily10 = new Map<number, number[]>();
+    for (const t of monthTxs ?? []) {
+      if (t.kind !== 'expense' || !t.categoryId) continue;
+      const gid = gidByCat.get(t.categoryId);
+      if (!gid) continue;
+      const day = Number(t.date.slice(8, 10));
+      if (!day) continue;
+      const arr = daily10.get(gid) ?? new Array<number>(31).fill(0);
+      arr[day - 1] += t.personalAmount ?? t.amount;
+      daily10.set(gid, arr);
+    }
+
+    return (groups ?? [])
+      .map((g) => {
+        const amount = g.id ? (spend.get(g.id) ?? 0) : 0;
+        const txCount = g.id ? (txCountByGroup.get(g.id) ?? 0) : 0;
+        const pct = totalExp > 0 ? (amount / totalExp) * 100 : 0;
+        const spark = (g.id ? daily10.get(g.id) : undefined) ?? new Array<number>(10).fill(0);
+        return { group: g, amount, txCount, pct, spark: spark.slice(-10) };
+      })
+      .sort((a, b) => b.amount - a.amount);
+  }, [groups, categories, monthTxs, expByGroup]);
 
   return (
     <>
-      <TopBar
-        title="Categorías"
-        leading={
-          <button onClick={onBack} className="press text-muted" aria-label="Atrás">
-            <Icon name="chevron-left" />
-          </button>
-        }
-        trailing={
+      <TopBarV2
+        title="saldo@local"
+        sub={`CATEGORIES · ${groups?.length ?? 0}`}
+        onBack={onBack}
+        right={
           <button
-            onClick={() => setEditingCat('new')}
-            className="press w-9 h-9 rounded-full bg-text text-bg grid place-items-center"
-            aria-label="Nueva categoría"
+            type="button"
+            onClick={() => setAddMenu(true)}
+            aria-label="Añadir"
+            className="press text-accent"
+            data-testid="cat-add-btn"
           >
-            <Icon name="plus" />
+            <Icon name="plus" size={14} />
           </button>
         }
       />
-      <div className="scroll-area flex-1 px-4 pb-6 space-y-4">
-        <Card padded={false}>
-          <div className="flex items-center justify-between px-4 pt-4 pb-2">
-            <h3 className="text-sm font-semibold">Grupos</h3>
-            <button
-              onClick={() => setEditingGroup('new')}
-              className="press text-xs text-muted flex items-center gap-1"
-            >
-              <Icon name="plus" size={14} /> Nuevo grupo
-            </button>
-          </div>
-          <ul className="divide-y divide-border">
-            {orderedGroups.map((g) => (
-              <li key={g.id} className="px-4 py-3 flex items-center justify-between">
-                <button
-                  onClick={() => setEditingGroup(g)}
-                  className="press flex items-center gap-2 flex-1 min-w-0 text-left"
+      <div className="scroll-area flex-1 pb-6" data-testid="categories-page">
+        <div className="px-3.5 py-2.5 border-b border-border font-mono text-mono9 text-dim tracking-widest uppercase">
+          ORDENADAS POR GASTO · {month}
+        </div>
+        <ul>
+          {rows.map(({ group, amount, txCount, pct, spark }) => (
+            <li key={group.id}>
+              <button
+                type="button"
+                onClick={() => setOpenGroup(group)}
+                className="w-full flex items-center gap-3 px-3.5 py-3 border-b border-border press"
+                data-testid={`cat-group-${group.id}`}
+              >
+                <span
+                  className="w-[30px] h-[30px] rounded-xs grid place-items-center shrink-0 font-mono text-[13px]"
+                  style={{
+                    background: `${group.color}22`,
+                    border: `1px solid ${group.color}`,
+                    color: group.color,
+                  }}
                 >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ background: g.color }}
-                  />
-                  <span className="text-sm truncate">{g.name}</span>
-                  <span className="text-[10px] uppercase tracking-wider text-dim">
-                    {g.kind === 'income' ? 'ingreso' : 'gasto'}
-                  </span>
-                </button>
-                <span className="text-xs text-muted">{(grouped.get(g.id ?? -1) ?? []).length}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-
-        {orderedGroups.map((g) => {
-          const cats = grouped.get(g.id ?? -1) ?? [];
-          if (cats.length === 0) return null;
-          return (
-            <div key={g.id}>
-              <div className="flex items-center gap-2 px-1 mb-2">
-                <span className="w-2 h-2 rounded-full" style={{ background: g.color }} />
-                <h4 className="text-[11px] uppercase tracking-wider text-muted">{g.name}</h4>
-              </div>
-              <Card padded={false}>
-                <ul className="divide-y divide-border">
-                  {cats.map((c) => (
-                    <li key={c.id}>
-                      <button
-                        onClick={() => setEditingCat(c)}
-                        className="press w-full flex items-center gap-3 px-4 py-3 text-left"
-                      >
-                        <span
-                          className="w-8 h-8 rounded-full grid place-items-center shrink-0 text-xs font-semibold"
-                          style={{ background: c.color + '22', color: c.color }}
-                        >
-                          {c.name.slice(0, 1).toUpperCase()}
-                        </span>
-                        <span className="text-sm flex-1 truncate">{c.name}</span>
-                        <Icon name="chevron-right" size={16} className="text-dim" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            </div>
-          );
-        })}
-
-        {(grouped.get('none') ?? []).length > 0 && (
-          <div>
-            <div className="px-1 mb-2">
-              <h4 className="text-[11px] uppercase tracking-wider text-muted">Sin grupo</h4>
-            </div>
-            <Card padded={false}>
-              <ul className="divide-y divide-border">
-                {(grouped.get('none') ?? []).map((c) => (
-                  <li key={c.id}>
-                    <button
-                      onClick={() => setEditingCat(c)}
-                      className="press w-full flex items-center gap-3 px-4 py-3 text-left"
-                    >
-                      <span
-                        className="w-8 h-8 rounded-full grid place-items-center shrink-0 text-xs font-semibold"
-                        style={{ background: c.color + '22', color: c.color }}
-                      >
-                        {c.name.slice(0, 1).toUpperCase()}
-                      </span>
-                      <span className="text-sm flex-1 truncate">{c.name}</span>
-                      <Icon name="chevron-right" size={16} className="text-dim" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          </div>
-        )}
+                  {group.name[0]?.toUpperCase()}
+                </span>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="font-mono text-mono12 text-text truncate">{group.name}</div>
+                  <div className="font-mono text-mono9 text-dim mt-0.5">
+                    {txCount} tx · {pct.toFixed(1)}% del gasto
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="font-mono text-mono12 text-text tabular">
+                    {formatMoney(amount)}
+                  </div>
+                  <div style={{ color: group.color }}>
+                    <Spark data={spark} w={50} h={12} color={group.color} />
+                  </div>
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
 
-      <Sheet
-        open={!!editingCat}
-        onClose={() => setEditingCat(null)}
-        title={editingCat === 'new' ? 'Nueva categoría' : 'Editar categoría'}
-      >
-        {editingCat && (
-          <CategoryForm
-            cat={editingCat === 'new' ? undefined : editingCat}
-            groups={groups ?? []}
-            categories={categories ?? []}
-            onClose={() => setEditingCat(null)}
-          />
-        )}
+      {/* Add menu sheet */}
+      <Sheet open={addMenu} onClose={() => setAddMenu(false)} title="Añadir">
+        <div className="space-y-2">
+          <Btn
+            variant="outline"
+            block
+            onClick={() => {
+              setAddMenu(false);
+              setNewGroupOpen(true);
+            }}
+          >
+            + GROUP
+          </Btn>
+          <Btn
+            variant="outline"
+            block
+            onClick={() => {
+              setAddMenu(false);
+              setNewCatOpen(true);
+            }}
+          >
+            + CATEGORY
+          </Btn>
+        </div>
       </Sheet>
 
-      <Sheet
-        open={!!editingGroup}
-        onClose={() => setEditingGroup(null)}
-        title={editingGroup === 'new' ? 'Nuevo grupo' : 'Editar grupo'}
-      >
-        {editingGroup && (
-          <GroupForm
-            group={editingGroup === 'new' ? undefined : editingGroup}
-            categories={categories ?? []}
-            onClose={() => setEditingGroup(null)}
-          />
-        )}
-      </Sheet>
+      <GroupEditorSheet open={newGroupOpen} onClose={() => setNewGroupOpen(false)} mode="create" />
+
+      <CategoryEditorSheet open={newCatOpen} onClose={() => setNewCatOpen(false)} mode="create" />
+
+      {openGroup && (
+        <GroupDetailSheet
+          open={!!openGroup}
+          group={openGroup}
+          onClose={() => setOpenGroup(null)}
+          categories={(categories ?? []).filter((c) => c.groupId === openGroup.id)}
+        />
+      )}
     </>
   );
 }
 
-function CategoryForm({
-  cat,
-  groups,
-  categories,
+function GroupDetailSheet({
+  open,
   onClose,
+  group,
+  categories,
 }: {
-  cat?: Category;
-  groups: CategoryGroup[];
-  categories: Category[];
+  open: boolean;
   onClose: () => void;
+  group: CategoryGroup;
+  categories: Category[];
 }) {
-  const [name, setName] = useState(cat?.name ?? '');
-  const [kind, setKind] = useState<'expense' | 'income'>(cat?.kind ?? 'expense');
-  const [groupId, setGroupId] = useState<number>(cat?.groupId ?? 0);
-  const [color, setColor] = useState(cat?.color ?? PALETTE[0]);
+  const [editingGroup, setEditingGroup] = useState(false);
+  const [editingCat, setEditingCat] = useState<Category | null>(null);
+  const [addCatOpen, setAddCatOpen] = useState(false);
 
-  async function save() {
-    if (!name.trim()) return;
-    const base: Omit<Category, 'id' | 'builtin'> = {
-      name: name.trim(),
-      color,
-      icon: cat?.icon ?? 'dots',
-      kind,
-      groupId: groupId || undefined,
-    };
-    if (cat?.id) await db.categories.update(cat.id, base);
-    else await db.categories.add(base);
-    invalidateRulesCache();
-    onClose();
-  }
-
-  async function remove() {
-    if (!cat?.id) return;
-    const inUse = await db.transactions.where('categoryId').equals(cat.id).count();
-    const msg =
-      inUse > 0
-        ? `¿Eliminar esta categoría? Las ${inUse} transacciones asociadas quedarán sin categorizar.`
-        : '¿Eliminar esta categoría? No se puede deshacer.';
-    if (!window.confirm(msg)) return;
-    const fallback = categories.find(
-      (c) =>
-        c.kind === cat.kind &&
-        c.builtin === 1 &&
-        c.name.toLowerCase().startsWith('otros') &&
-        c.id !== cat.id,
-    );
-    if (inUse > 0 && fallback?.id) {
-      // Move to builtin "Otros" fallback so they remain categorized under a safe default
-      await db.transactions.where('categoryId').equals(cat.id).modify({ categoryId: fallback.id });
-    } else if (inUse > 0) {
-      // No fallback available: clear categoryId so they show "Sin categoría"
-      await db.transactions.where('categoryId').equals(cat.id).modify({ categoryId: undefined });
+  async function removeGroup() {
+    if (!group.id) return;
+    if (!window.confirm(`¿Borrar grupo "${group.name}"? Las categorías quedarán sin grupo.`)) {
+      return;
     }
-    await db.rules.where('categoryId').equals(cat.id).delete();
-    await db.categories.delete(cat.id);
-    invalidateRulesCache();
+    const cats = await db.categories.where('groupId').equals(group.id).toArray();
+    await db.transaction('rw', db.categories, db.categoryGroups, async () => {
+      for (const c of cats) {
+        if (c.id) await db.categories.update(c.id, { groupId: undefined });
+      }
+      if (group.id) await db.categoryGroups.delete(group.id);
+    });
     onClose();
   }
-
-  const visibleGroups = groups.filter((g) => g.kind === kind);
 
   return (
-    <div className="space-y-3">
-      <Input
-        label="Nombre"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Café, gym, viajes..."
-        autoFocus={!cat}
-      />
-      <SegmentedControl
-        value={kind}
-        onChange={(v) => setKind(v as 'expense' | 'income')}
-        options={[
-          { value: 'expense', label: 'Gasto' },
-          { value: 'income', label: 'Ingreso' },
-        ]}
-      />
-      <Select label="Grupo" value={groupId} onChange={(e) => setGroupId(Number(e.target.value))}>
-        <option value={0}>Sin grupo</option>
-        {visibleGroups.map((g) => (
-          <option key={g.id} value={g.id}>
-            {g.name}
-          </option>
-        ))}
-      </Select>
-      <div>
-        <p className="block text-xs text-muted mb-1.5">Color</p>
-        <div className="flex gap-2 flex-wrap">
-          {PALETTE.map((c) => (
-            <button
-              key={c}
-              onClick={() => setColor(c)}
-              className={`w-8 h-8 rounded-full press ${color === c ? 'ring-2 ring-text/70' : ''}`}
-              style={{ background: c }}
-            />
-          ))}
+    <>
+      <Sheet open={open} onClose={onClose} title={group.name}>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <span
+              className="w-[30px] h-[30px] rounded-xs grid place-items-center font-mono text-[13px]"
+              style={{
+                background: `${group.color}22`,
+                border: `1px solid ${group.color}`,
+                color: group.color,
+              }}
+            >
+              {group.name[0]?.toUpperCase()}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="font-mono text-mono11 text-text">{group.name}</div>
+              <div className="font-mono text-mono9 text-dim">{categories.length} categorías</div>
+            </div>
+            <Btn size="sm" variant="outline" onClick={() => setEditingGroup(true)}>
+              EDIT
+            </Btn>
+          </div>
+
+          <div className="font-mono text-mono9 text-dim tracking-widest uppercase mt-3">
+            CATEGORIES
+          </div>
+          <ul className="divide-y divide-border border border-border rounded-xs">
+            {categories.length === 0 && (
+              <li className="p-3 font-mono text-mono10 text-dim">Sin categorías.</li>
+            )}
+            {categories.map((c) => (
+              <li
+                key={c.id}
+                className="flex items-center justify-between gap-2 px-2.5 py-2.5"
+                data-testid={`cat-row-${c.id}`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ background: c.color }}
+                  />
+                  <span className="font-mono text-mono11 text-text truncate">{c.name}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingCat(c)}
+                    className="font-mono text-mono9 text-muted press"
+                  >
+                    EDIT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (c.id && window.confirm(`¿Borrar "${c.name}"?`)) {
+                        await db.categories.delete(c.id);
+                        invalidateRulesCache();
+                      }
+                    }}
+                    className="font-mono text-mono9 text-danger press"
+                  >
+                    DEL
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className="flex gap-2 pt-1">
+            <Btn variant="outline" block onClick={() => setAddCatOpen(true)}>
+              + CATEGORY
+            </Btn>
+            <Btn variant="danger" onClick={removeGroup}>
+              DELETE
+            </Btn>
+          </div>
         </div>
-      </div>
-      <div className="flex gap-2 pt-2">
-        <Button variant="secondary" full onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button variant="primary" full onClick={save}>
-          Guardar
-        </Button>
-      </div>
-      {cat?.id && (
-        <Button variant="danger" full leading={<Icon name="trash" size={16} />} onClick={remove}>
-          Eliminar
-        </Button>
+      </Sheet>
+
+      <GroupEditorSheet
+        open={editingGroup}
+        onClose={() => setEditingGroup(false)}
+        mode="edit"
+        group={group}
+      />
+      {editingCat && (
+        <CategoryEditorSheet
+          open={!!editingCat}
+          onClose={() => setEditingCat(null)}
+          mode="edit"
+          category={editingCat}
+        />
       )}
-    </div>
+      <CategoryEditorSheet
+        open={addCatOpen}
+        onClose={() => setAddCatOpen(false)}
+        mode="create"
+        defaultGroupId={group.id}
+      />
+    </>
   );
 }
 
-function GroupForm({
-  group,
-  categories,
+function GroupEditorSheet({
+  open,
   onClose,
+  mode,
+  group,
 }: {
-  group?: CategoryGroup;
-  categories: Category[];
+  open: boolean;
   onClose: () => void;
+  mode: 'create' | 'edit';
+  group?: CategoryGroup;
 }) {
   const [name, setName] = useState(group?.name ?? '');
-  const [kind, setKind] = useState<'expense' | 'income'>(group?.kind ?? 'expense');
   const [color, setColor] = useState(group?.color ?? PALETTE[0]);
+  const [kind, setKind] = useState<'expense' | 'income'>(group?.kind ?? 'expense');
 
-  async function save() {
-    if (!name.trim()) return;
-    const base: Omit<CategoryGroup, 'id' | 'builtin'> = {
-      name: name.trim(),
-      color,
-      icon: group?.icon ?? 'folder',
-      kind,
-      order: group?.order ?? 99,
-    };
-    if (group?.id) await db.categoryGroups.update(group.id, base);
-    else await db.categoryGroups.add(base);
+  useMemo(() => {
+    setName(group?.name ?? '');
+    setColor(group?.color ?? PALETTE[0]);
+    setKind(group?.kind ?? 'expense');
+  }, [group?.id]);
+
+  async function commit() {
+    const n = name.trim();
+    if (!n) return;
+    if (mode === 'create') {
+      await db.categoryGroups.add({
+        name: n,
+        color,
+        icon: 'folder',
+        kind,
+        order: Date.now(),
+      });
+    } else if (group?.id) {
+      await db.categoryGroups.update(group.id, { name: n, color, kind });
+    }
     onClose();
   }
-
-  async function remove() {
-    if (!group?.id) return;
-    if (!window.confirm('¿Eliminar este grupo? Las categorías asociadas quedarán sin grupo.'))
-      return;
-    await db.categories.where('groupId').equals(group.id).modify({ groupId: undefined });
-    await db.categoryGroups.delete(group.id);
-    onClose();
-  }
-
-  const catsInGroup = categories.filter((c) => c.groupId === group?.id);
 
   return (
-    <div className="space-y-3">
-      <Input
-        label="Nombre"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Ocio, Comida..."
-        autoFocus={!group}
-      />
-      <SegmentedControl
-        value={kind}
-        onChange={(v) => setKind(v as 'expense' | 'income')}
-        options={[
-          { value: 'expense', label: 'Gasto' },
-          { value: 'income', label: 'Ingreso' },
-        ]}
-      />
-      <div>
-        <p className="block text-xs text-muted mb-1.5">Color</p>
-        <div className="flex gap-2 flex-wrap">
-          {PALETTE.map((c) => (
-            <button
-              key={c}
-              onClick={() => setColor(c)}
-              className={`w-8 h-8 rounded-full press ${color === c ? 'ring-2 ring-text/70' : ''}`}
-              style={{ background: c }}
-            />
-          ))}
-        </div>
-      </div>
-      {catsInGroup.length > 0 && (
+    <Sheet open={open} onClose={onClose} title={mode === 'create' ? 'Nuevo grupo' : 'Editar grupo'}>
+      <div className="space-y-3 font-mono">
+        <label className="block">
+          <span className="text-mono9 text-dim uppercase tracking-widest">NAME</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            data-testid="group-name-input"
+            className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono12 text-text focus:outline-none focus:border-borderStrong"
+          />
+        </label>
         <div>
-          <p className="block text-xs text-muted mb-1.5">Categorías en este grupo</p>
-          <div className="flex flex-wrap gap-1.5">
-            {catsInGroup.map((c) => (
-              <span
-                key={c.id}
-                className="chip"
-                style={{ borderColor: c.color + '55', color: c.color }}
+          <span className="text-mono9 text-dim uppercase tracking-widest">KIND</span>
+          <div className="mt-1 flex gap-1">
+            {(['expense', 'income'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                aria-pressed={kind === k}
+                className={[
+                  'flex-1 py-1.5 border rounded-xs text-mono10 tracking-widest',
+                  kind === k ? 'text-accent bg-surface border-accent' : 'text-muted border-border',
+                ].join(' ')}
               >
-                {c.name}
-              </span>
+                {k.toUpperCase()}
+              </button>
             ))}
           </div>
         </div>
-      )}
-      <div className="flex gap-2 pt-2">
-        <Button variant="secondary" full onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button variant="primary" full onClick={save}>
-          Guardar
-        </Button>
+        <div>
+          <span className="text-mono9 text-dim uppercase tracking-widest">COLOR</span>
+          <div className="mt-1 grid grid-cols-8 gap-1.5">
+            {PALETTE.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                aria-label={`color ${c}`}
+                aria-pressed={color === c}
+                className={[
+                  'w-7 h-7 rounded-xs border',
+                  color === c ? 'border-accent' : 'border-border',
+                ].join(' ')}
+                style={{ background: c }}
+              />
+            ))}
+          </div>
+        </div>
+        <Btn variant="solid" block onClick={commit} disabled={!name.trim()}>
+          {mode === 'create' ? 'CREATE' : 'SAVE'}
+        </Btn>
       </div>
-      {group?.id && (
-        <Button variant="danger" full leading={<Icon name="trash" size={16} />} onClick={remove}>
-          Eliminar grupo
-        </Button>
-      )}
-    </div>
+    </Sheet>
+  );
+}
+
+function CategoryEditorSheet({
+  open,
+  onClose,
+  mode,
+  category,
+  defaultGroupId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  mode: 'create' | 'edit';
+  category?: Category;
+  defaultGroupId?: number;
+}) {
+  const groups = useLiveQuery(() => db.categoryGroups.toArray(), []);
+  const [name, setName] = useState(category?.name ?? '');
+  const [color, setColor] = useState(category?.color ?? PALETTE[0]);
+  const [kind, setKind] = useState<'expense' | 'income'>(category?.kind ?? 'expense');
+  const [groupId, setGroupId] = useState<number | undefined>(category?.groupId ?? defaultGroupId);
+
+  useMemo(() => {
+    setName(category?.name ?? '');
+    setColor(category?.color ?? PALETTE[0]);
+    setKind(category?.kind ?? 'expense');
+    setGroupId(category?.groupId ?? defaultGroupId);
+  }, [category?.id, defaultGroupId]);
+
+  async function commit() {
+    const n = name.trim();
+    if (!n) return;
+    if (mode === 'create') {
+      await db.categories.add({ name: n, color, icon: 'dot', kind, groupId });
+    } else if (category?.id) {
+      await db.categories.update(category.id, { name: n, color, kind, groupId });
+    }
+    invalidateRulesCache();
+    onClose();
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={mode === 'create' ? 'Nueva categoría' : 'Editar categoría'}
+    >
+      <div className="space-y-3 font-mono">
+        <label className="block">
+          <span className="text-mono9 text-dim uppercase tracking-widest">NAME</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            data-testid="category-name-input"
+            className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono12 text-text focus:outline-none focus:border-borderStrong"
+          />
+        </label>
+        <label className="block">
+          <span className="text-mono9 text-dim uppercase tracking-widest">GROUP</span>
+          <select
+            value={groupId ?? ''}
+            onChange={(e) => setGroupId(Number(e.target.value) || undefined)}
+            className="mt-1 w-full bg-transparent border border-border rounded-xs px-2 py-2 text-mono11 text-text"
+          >
+            <option value="">— sin grupo —</option>
+            {(groups ?? []).map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div>
+          <span className="text-mono9 text-dim uppercase tracking-widest">KIND</span>
+          <div className="mt-1 flex gap-1">
+            {(['expense', 'income'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                aria-pressed={kind === k}
+                className={[
+                  'flex-1 py-1.5 border rounded-xs text-mono10 tracking-widest',
+                  kind === k ? 'text-accent bg-surface border-accent' : 'text-muted border-border',
+                ].join(' ')}
+              >
+                {k.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="text-mono9 text-dim uppercase tracking-widest">COLOR</span>
+          <div className="mt-1 grid grid-cols-8 gap-1.5">
+            {PALETTE.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                aria-pressed={color === c}
+                aria-label={`color ${c}`}
+                className={[
+                  'w-7 h-7 rounded-xs border',
+                  color === c ? 'border-accent' : 'border-border',
+                ].join(' ')}
+                style={{ background: c }}
+              />
+            ))}
+          </div>
+        </div>
+        <Btn variant="solid" block onClick={commit} disabled={!name.trim()}>
+          {mode === 'create' ? 'CREATE' : 'SAVE'}
+        </Btn>
+      </div>
+    </Sheet>
   );
 }

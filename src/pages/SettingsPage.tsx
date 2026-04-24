@@ -1,492 +1,406 @@
-import { useLiveQuery } from 'dexie-react-hooks';
+/**
+ * SettingsPage — F10 rewrite (ScrSettings). Identity header + secciones
+ * SEGURIDAD / DATOS / APARIENCIA / PRIVACIDAD / INFO. Implementa PIN change,
+ * auto-lock stepper, wipe completo, toggle de modo Dashboard y toggle de
+ * dashboardMode default.
+ */
 import { useState } from 'react';
 import { db } from '@/db/database';
-import { TopBar } from '@/ui/TopBar';
-import { Card } from '@/ui/Card';
-import { Button } from '@/ui/Button';
-import { Icon } from '@/ui/Icon';
+import { TopBarV2 } from '@/ui/TopBarV2';
+import { Icon, type IconName } from '@/ui/Icon';
+import { Badge, Btn } from '@/ui/primitives';
 import { Sheet } from '@/ui/Sheet';
-import { Input, Select } from '@/ui/Input';
-import { formatMoney } from '@/lib/format';
-import { invalidateRulesCache } from '@/lib/categorize';
-import type { Account, Budget, Category, Recurring } from '@/types';
-import { useApp } from '@/stores/app';
-import { detectRecurring } from '@/lib/recurring';
+import { PinPad } from '@/ui/PinPad';
+import { useLock, DEFAULT_AUTO_LOCK_MS } from '@/stores/lock';
+import { useMeta } from '@/stores/meta';
+
+const VERSION = '0.2.0';
+
+const AUTO_LOCK_OPTIONS: { label: string; ms: number }[] = [
+  { label: '15s', ms: 15_000 },
+  { label: '30s', ms: 30_000 },
+  { label: '1m', ms: 60_000 },
+  { label: '5m', ms: 300_000 },
+  { label: '15m', ms: 900_000 },
+];
 
 export function SettingsPage() {
-  const month = useApp((s) => s.month);
-  const accounts = useLiveQuery(() => db.accounts.toArray(), []);
-  const categories = useLiveQuery(() => db.categories.toArray(), []);
-  const budgets = useLiveQuery(
-    () => db.budgets.where('month').anyOf([month, '*']).toArray(),
-    [month],
-  );
-  const recurring = useLiveQuery(() => db.recurring.toArray(), []);
+  const autoLockMs = useLock((s) => s.autoLockMs);
+  const wipeVault = useLock((s) => s.wipeVault);
+  const setAutoLockMs = useLock((s) => s.setAutoLockMs);
+  const dashboardMode = useMeta((s) => s.dashboardMode);
+  const setDashboardMode = useMeta((s) => s.setDashboardMode);
 
-  const [accountSheet, setAccountSheet] = useState(false);
-  const [budgetSheet, setBudgetSheet] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [autoLockOpen, setAutoLockOpen] = useState(false);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
 
-  async function runDetect() {
-    await detectRecurring();
+  async function doWipe() {
+    if (
+      !window.confirm(
+        '¿Borrar todos los datos? Transacciones, reglas, goals, subs y préstamos desaparecen. El vault también. Esta acción no se puede deshacer.',
+      )
+    ) {
+      return;
+    }
+    if (!window.confirm('Último aviso. ¿Seguro?')) return;
+    await db.transaction(
+      'rw',
+      [
+        db.transactions,
+        db.accounts,
+        db.categories,
+        db.categoryGroups,
+        db.budgets,
+        db.goals,
+        db.loans,
+        db.rules,
+        db.subscriptions,
+        db.recurring,
+        db.balances,
+        db.meta,
+      ],
+      async () => {
+        await Promise.all([
+          db.transactions.clear(),
+          db.accounts.clear(),
+          db.categories.clear(),
+          db.categoryGroups.clear(),
+          db.budgets.clear(),
+          db.goals.clear(),
+          db.loans.clear(),
+          db.rules.clear(),
+          db.subscriptions.clear(),
+          db.recurring.clear(),
+          db.balances.clear(),
+          db.meta.clear(),
+        ]);
+      },
+    );
+    await wipeVault();
+  }
+
+  function autoLockLabel(): string {
+    const match = AUTO_LOCK_OPTIONS.find((o) => o.ms === autoLockMs);
+    return match?.label ?? `${Math.round(autoLockMs / 1000)}s`;
   }
 
   return (
     <>
-      <TopBar title="Ajustes" />
-      <div className="scroll-area flex-1 px-4 pb-6 space-y-4">
-        <Card padded={false}>
-          <div className="flex items-center justify-between px-4 pt-4 pb-2">
-            <h3 className="text-sm font-semibold">Cuentas</h3>
-            <button
-              onClick={() => setAccountSheet(true)}
-              className="text-xs text-muted press flex items-center gap-1"
-            >
-              <Icon name="plus" size={14} /> Añadir
-            </button>
-          </div>
-          <ul className="divide-y divide-border">
-            {accounts?.map((a) => (
-              <li key={a.id} className="px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm">{a.name}</p>
-                  <p className="text-[11px] text-muted uppercase tracking-wider">
-                    {a.bank === 'manual' ? 'Manual' : a.bank.toUpperCase()}
-                  </p>
-                </div>
-                <span className="text-[11px] text-dim">{a.currency}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-
-        <Card padded={false}>
-          <div className="flex items-center justify-between px-4 pt-4 pb-2">
-            <div>
-              <h3 className="text-sm font-semibold">Presupuestos</h3>
-              <p className="text-[11px] text-muted">Límite mensual por categoría</p>
+      <TopBarV2 title="saldo@local" sub="SETTINGS" />
+      <div className="scroll-area flex-1 pb-6" data-testid="settings-page">
+        {/* Identity */}
+        <section className="px-3.5 py-3.5 border-b border-border flex items-center gap-3">
+          <span className="w-10 h-10 border border-accent bg-surface rounded-xs grid place-items-center font-mono text-[13px] text-accent">
+            ●
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="font-mono text-mono12 text-text">usuario@local</div>
+            <div className="font-mono text-mono9 text-dim mt-0.5 truncate">
+              device: {typeof navigator !== 'undefined' ? navigator.platform : 'web'} · saldo v
+              {VERSION}
             </div>
-            <button
-              onClick={() => setBudgetSheet(true)}
-              className="text-xs text-muted press flex items-center gap-1"
-            >
-              <Icon name="plus" size={14} /> Añadir
-            </button>
           </div>
-          {budgets && budgets.length > 0 ? (
-            <ul className="divide-y divide-border">
-              {budgets.map((b) => {
-                const cat = categories?.find((c) => c.id === b.categoryId);
-                return (
-                  <li key={b.id} className="px-4 py-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {cat && (
-                        <span className="w-2 h-2 rounded-full" style={{ background: cat.color }} />
-                      )}
-                      <span className="text-sm">{cat?.name ?? '—'}</span>
-                      {b.month === '*' && <span className="chip text-[10px]">Todos los meses</span>}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm tabular">{formatMoney(b.amount)}</span>
-                      <button
-                        onClick={() => b.id && db.budgets.delete(b.id)}
-                        className="text-dim press"
-                        aria-label="Eliminar"
-                      >
-                        <Icon name="x" size={16} />
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <div className="px-4 pb-4">
-              <p className="text-sm text-muted">Sin presupuestos definidos.</p>
-            </div>
-          )}
-        </Card>
+          <Badge tone="ok">
+            <Icon name="lock" size={8} stroke={2} />
+            OFFLINE
+          </Badge>
+        </section>
 
-        <Card padded={false}>
-          <div className="flex items-center justify-between px-4 pt-4 pb-2">
-            <div>
-              <h3 className="text-sm font-semibold">Gastos recurrentes</h3>
-              <p className="text-[11px] text-muted">Detectados automáticamente</p>
-            </div>
-            <button
-              onClick={runDetect}
-              className="text-xs text-muted press flex items-center gap-1"
-            >
-              <Icon name="repeat" size={14} /> Redetectar
-            </button>
-          </div>
-          <RecurringList items={recurring ?? []} categories={categories ?? []} />
-        </Card>
+        <SectionHeader label="SEGURIDAD" />
+        <Row
+          icon="lock"
+          label="Cambiar PIN"
+          value="••••••"
+          onClick={() => setPinOpen(true)}
+          testId="set-change-pin"
+        />
+        <Row
+          icon="shield"
+          label="Auto-lock"
+          value={autoLockLabel()}
+          onClick={() => setAutoLockOpen(true)}
+          testId="set-auto-lock"
+        />
+        <Row
+          icon="finger"
+          label="Biometría"
+          value="ver F13"
+          subtle="disponible al subir a Capacitor 8"
+        />
 
-        <Card>
-          <h3 className="text-sm font-semibold">Datos</h3>
-          <p className="text-xs text-muted mt-1">
-            Todo se guarda en este dispositivo. Puedes exportar un backup JSON.
-          </p>
-          <div className="grid grid-cols-2 gap-2 mt-3">
-            <Button variant="secondary" onClick={exportBackup}>
-              Backup JSON
-            </Button>
-            <Button variant="secondary" onClick={exportCSV}>
-              Export CSV
-            </Button>
-            <label className="press inline-flex items-center justify-center gap-2 h-11 px-4 rounded-xl bg-elevated border border-border text-sm font-medium cursor-pointer col-span-2">
-              Importar backup JSON
-              <input
-                type="file"
-                accept="application/json"
-                className="hidden"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (f) await importBackup(f);
-                  e.target.value = '';
-                }}
-              />
-            </label>
-          </div>
-        </Card>
+        <SectionHeader label="DATOS" />
+        <Row
+          icon="trash"
+          label="Borrar todos los datos"
+          value="Peligroso"
+          danger
+          onClick={() => void doWipe()}
+          testId="set-wipe"
+        />
 
-        <div className="text-center pt-4 pb-8">
-          <p className="text-[11px] text-dim">Saldo · offline first · v0.1.0</p>
-        </div>
+        <SectionHeader label="APARIENCIA" />
+        <Row
+          icon="chart"
+          label="Modo Dashboard"
+          value={dashboardMode.toUpperCase()}
+          onClick={() => setDashboardOpen(true)}
+          testId="set-dashboard-mode"
+        />
+        <Row icon="eye" label="Tema" value="Dark · Terminal" />
+
+        <SectionHeader label="PRIVACIDAD" />
+        <Row
+          icon="wifi-off"
+          label="Telemetría anónima"
+          value="OFF"
+          subtle="local-first por diseño"
+        />
+        <Row
+          icon="cpu"
+          label="Sincronización nube"
+          value="OFF"
+          subtle="sin cuentas, sin servidor"
+        />
+
+        <SectionHeader label="INFO" />
+        <Row icon="info" label="Versión" value={`v${VERSION}`} />
+        <Row
+          icon="link"
+          label="Código fuente"
+          value="github →"
+          onClick={() => window.open('https://github.com/alvarotorresc/Saldo', '_blank')}
+        />
+        <Row icon="shield" label="Local-first · no tracking · open source" />
+
+        <p className="mt-4 text-center font-mono text-mono9 text-dim leading-relaxed px-3.5">
+          SALDO · v{VERSION}
+          <br />
+          <span className="text-muted">local-first</span> ·{' '}
+          <span className="text-accent">no tracking</span> ·{' '}
+          <span className="text-info">open source</span>
+        </p>
       </div>
 
-      <Sheet open={accountSheet} onClose={() => setAccountSheet(false)} title="Nueva cuenta">
-        <AccountForm onClose={() => setAccountSheet(false)} />
+      <ChangePinSheet open={pinOpen} onClose={() => setPinOpen(false)} />
+
+      <Sheet open={autoLockOpen} onClose={() => setAutoLockOpen(false)} title="Auto-lock timeout">
+        <ul className="space-y-1">
+          {AUTO_LOCK_OPTIONS.map((o) => (
+            <li key={o.ms}>
+              <button
+                type="button"
+                onClick={() => {
+                  setAutoLockMs(o.ms);
+                  setAutoLockOpen(false);
+                }}
+                className="w-full flex items-center justify-between px-2 py-3 border border-border rounded-xs font-mono text-mono11 text-text press"
+              >
+                <span>{o.label}</span>
+                {autoLockMs === o.ms && <Icon name="check" size={14} className="text-accent" />}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <Btn
+          variant="ghost"
+          block
+          className="mt-3"
+          onClick={() => {
+            setAutoLockMs(DEFAULT_AUTO_LOCK_MS);
+            setAutoLockOpen(false);
+          }}
+        >
+          RESET
+        </Btn>
       </Sheet>
-      <Sheet open={budgetSheet} onClose={() => setBudgetSheet(false)} title="Nuevo presupuesto">
-        <BudgetForm
-          month={month}
-          categories={categories ?? []}
-          onClose={() => setBudgetSheet(false)}
-        />
+
+      <Sheet open={dashboardOpen} onClose={() => setDashboardOpen(false)} title="Modo Dashboard">
+        <div className="space-y-2">
+          {(['sobrio', 'charts'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => {
+                void setDashboardMode(m);
+                setDashboardOpen(false);
+              }}
+              className="w-full flex items-center justify-between px-2 py-3 border border-border rounded-xs font-mono text-mono11 text-text press"
+            >
+              <span>{m.toUpperCase()}</span>
+              {dashboardMode === m && <Icon name="check" size={14} className="text-accent" />}
+            </button>
+          ))}
+        </div>
       </Sheet>
     </>
   );
 }
 
-function RecurringList({ items, categories }: { items: Recurring[]; categories: Category[] }) {
-  if (items.length === 0) {
-    return (
-      <div className="px-4 pb-4">
-        <p className="text-sm text-muted">Añade más movimientos para detectar pagos recurrentes.</p>
-      </div>
-    );
-  }
-  const byCat = (id?: number) => categories.find((c) => c.id === id);
+function SectionHeader({ label }: { label: string }) {
   return (
-    <ul className="divide-y divide-border">
-      {items.slice(0, 20).map((r) => {
-        const cat = byCat(r.categoryId);
-        return (
-          <li key={r.id} className="px-4 py-3 flex items-center gap-3">
-            <div
-              className="w-8 h-8 rounded-full grid place-items-center shrink-0"
-              style={{
-                background: (cat?.color ?? '#2A2A30') + '22',
-                color: cat?.color ?? '#8A8A93',
-              }}
-            >
-              <Icon name="repeat" size={14} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm truncate capitalize">{r.signature}</p>
-              <p className="text-[11px] text-muted">
-                ~cada {r.cadenceDays} días · {r.sampleCount} pagos
-              </p>
-            </div>
-            <span
-              className={`text-sm tabular ${r.kind === 'expense' ? 'text-danger' : 'text-accent'}`}
-            >
-              {r.kind === 'expense' ? '-' : '+'}
-              {formatMoney(r.averageAmount)}
-            </span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-function AccountForm({ onClose }: { onClose: () => void }) {
-  const [name, setName] = useState('');
-  const [bank, setBank] = useState<Account['bank']>('manual');
-
-  async function save() {
-    if (!name) return;
-    await db.accounts.add({
-      name,
-      bank,
-      currency: 'EUR',
-      createdAt: Date.now(),
-    });
-    onClose();
-  }
-
-  return (
-    <div className="space-y-3">
-      <Input
-        label="Nombre"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="N26 principal"
-        autoFocus
-      />
-      <Select
-        label="Banco"
-        value={bank}
-        onChange={(e) => setBank(e.target.value as Account['bank'])}
-      >
-        <option value="manual">Manual</option>
-        <option value="n26">N26</option>
-        <option value="bbva">BBVA</option>
-        <option value="other">Otro</option>
-      </Select>
-      <div className="flex gap-2 pt-2">
-        <Button variant="secondary" full onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button variant="primary" full onClick={save}>
-          Guardar
-        </Button>
-      </div>
+    <div className="px-3.5 py-2.5 bg-surface border-y border-border font-mono text-mono9 text-dim tracking-widest uppercase">
+      {label}
     </div>
   );
 }
 
-function BudgetForm({
-  month,
-  categories,
-  onClose,
+function Row({
+  icon,
+  label,
+  value,
+  subtle,
+  onClick,
+  danger = false,
+  testId,
 }: {
-  month: string;
-  categories: Category[];
-  onClose: () => void;
+  icon: IconName;
+  label: string;
+  value?: string;
+  subtle?: string;
+  onClick?: () => void;
+  danger?: boolean;
+  testId?: string;
 }) {
-  const [categoryId, setCategoryId] = useState<number>(0);
-  const [amount, setAmount] = useState('');
-  const [monthScope, setMonthScope] = useState<'current' | 'all'>('all');
-
-  async function save() {
-    const n = Number(amount);
-    if (!categoryId || !Number.isFinite(n) || n <= 0) return;
-    const budget: Omit<Budget, 'id'> = {
-      month: monthScope === 'all' ? '*' : month,
-      categoryId,
-      amount: n,
-      createdAt: Date.now(),
-    };
-    await db.budgets.add(budget);
-    invalidateRulesCache();
-    onClose();
-  }
-
+  const interactive = typeof onClick === 'function';
+  const Tag = interactive ? 'button' : 'div';
   return (
-    <div className="space-y-3">
-      <Select
-        label="Categoría"
-        value={categoryId}
-        onChange={(e) => setCategoryId(Number(e.target.value))}
+    <Tag
+      type={interactive ? 'button' : undefined}
+      onClick={onClick}
+      data-testid={testId}
+      className={[
+        'w-full flex items-center gap-3 px-3.5 py-3 border-b border-border',
+        interactive ? 'press' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <Icon name={icon} size={13} className={danger ? 'text-danger' : 'text-muted'} />
+      <span
+        className={[
+          'flex-1 min-w-0 text-left font-mono text-mono11',
+          danger ? 'text-danger' : 'text-text',
+        ].join(' ')}
       >
-        <option value={0}>Elige una...</option>
-        {categories
-          .filter((c) => c.kind === 'expense')
-          .map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-      </Select>
-      <Input
-        label="Importe mensual (€)"
-        type="number"
-        inputMode="decimal"
-        value={amount}
-        onChange={(e) => setAmount(e.target.value)}
-        placeholder="300"
-      />
-      <Select
-        label="Aplica a"
-        value={monthScope}
-        onChange={(e) => setMonthScope(e.target.value as 'current' | 'all')}
-      >
-        <option value="all">Todos los meses</option>
-        <option value="current">Solo este mes</option>
-      </Select>
-      <div className="flex gap-2 pt-2">
-        <Button variant="secondary" full onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button variant="primary" full onClick={save}>
-          Guardar
-        </Button>
-      </div>
-    </div>
+        {label}
+        {subtle && <span className="block font-mono text-mono9 text-dim mt-0.5">{subtle}</span>}
+      </span>
+      {value && (
+        <span
+          className={['font-mono text-mono10 shrink-0', danger ? 'text-danger' : 'text-muted'].join(
+            ' ',
+          )}
+        >
+          {value}
+        </span>
+      )}
+      {interactive && <Icon name="chev-r" size={11} className="text-dim shrink-0" />}
+    </Tag>
   );
 }
 
-async function exportBackup() {
-  const [
-    accounts,
-    categoryGroups,
-    categories,
-    transactions,
-    budgets,
-    goals,
-    recurring,
-    rules,
-    subscriptions,
-    loans,
-    balances,
-  ] = await Promise.all([
-    db.accounts.toArray(),
-    db.categoryGroups.toArray(),
-    db.categories.toArray(),
-    db.transactions.toArray(),
-    db.budgets.toArray(),
-    db.goals.toArray(),
-    db.recurring.toArray(),
-    db.rules.toArray(),
-    db.subscriptions.toArray(),
-    db.loans.toArray(),
-    db.balances.toArray(),
-  ]);
-  const payload = {
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    accounts,
-    categoryGroups,
-    categories,
-    transactions,
-    budgets,
-    goals,
-    recurring,
-    rules,
-    subscriptions,
-    loans,
-    balances,
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `saldo-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+function ChangePinSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const changePin = useLock((s) => s.changePin);
+  const [phase, setPhase] = useState<'old' | 'new' | 'confirm' | 'done'>('old');
+  const [oldPin, setOldPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-async function exportCSV() {
-  const txs = await db.transactions.orderBy('date').toArray();
-  const cats = await db.categories.toArray();
-  const catById = new Map(cats.map((c) => [c.id, c.name] as const));
-  const header = [
-    'Fecha',
-    'Descripción',
-    'Comercio',
-    'Importe',
-    'Tipo',
-    'Categoría',
-    'Tu parte',
-    'Notas',
-    'Etiquetas',
-  ];
-  const esc = (v: unknown): string => {
-    const s = v == null ? '' : String(v);
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-      return `"${s.replace(/"/g, '""')}"`;
+  function reset() {
+    setPhase('old');
+    setOldPin('');
+    setNewPin('');
+    setConfirmPin('');
+    setError(null);
+  }
+
+  async function submit(): Promise<void> {
+    setError(null);
+    if (phase === 'old') {
+      setPhase('new');
+      return;
     }
-    return s;
-  };
-  const rows = txs.map((t) => [
-    t.date,
-    t.description,
-    t.merchant ?? '',
-    (t.kind === 'expense' ? '-' : t.kind === 'income' ? '+' : '') + t.amount.toFixed(2),
-    t.kind,
-    catById.get(t.categoryId ?? -1) ?? '',
-    t.personalAmount != null ? t.personalAmount.toFixed(2) : '',
-    t.notes ?? '',
-    (t.tags ?? []).join('|'),
-  ]);
-  const csv = [header, ...rows].map((r) => r.map(esc).join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `saldo-transacciones-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-async function importBackup(file: File) {
-  try {
-    const text = await file.text();
-    const data = JSON.parse(text);
-
-    // Validate version: must be a known string or a supported numeric (1 or 2)
-    const version = data?.version;
-    const versionStr = typeof version === 'string' ? version : String(version ?? '');
-    const versionOk =
-      (typeof version === 'number' && (version === 1 || version === 2)) ||
-      (typeof version === 'string' &&
-        (versionStr.startsWith('1') || versionStr.startsWith('0.1') || versionStr === '2'));
-    if (!versionOk) {
-      throw new Error(
-        `Versión de backup no soportada: "${versionStr || 'desconocida'}". Esperado 1 o 2.`,
-      );
+    if (phase === 'new') {
+      if (newPin.length < 4) {
+        setError('PIN mínimo 4 dígitos.');
+        return;
+      }
+      setPhase('confirm');
+      return;
     }
-
-    // Validate shape: at least one known array field must exist and all provided must be arrays
-    const arrayFields = [
-      'accounts',
-      'categoryGroups',
-      'categories',
-      'transactions',
-      'budgets',
-      'goals',
-      'recurring',
-      'rules',
-      'subscriptions',
-      'loans',
-      'balances',
-    ] as const;
-    let seen = 0;
-    for (const f of arrayFields) {
-      if (data[f] !== undefined) {
-        if (!Array.isArray(data[f])) {
-          throw new Error(`Campo "${f}" no es un array válido.`);
+    if (phase === 'confirm') {
+      if (confirmPin !== newPin) {
+        setError('Los PIN no coinciden.');
+        setConfirmPin('');
+        return;
+      }
+      try {
+        const ok = await changePin(oldPin, newPin);
+        if (!ok) {
+          setError('PIN actual incorrecto.');
+          reset();
+          return;
         }
-        seen++;
+        setPhase('done');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        reset();
       }
     }
-    if (seen === 0) {
-      throw new Error('El backup no contiene datos reconocibles.');
-    }
-
-    // Invalidate BEFORE the write to prevent any in-flight categorize() from using stale rules.
-    invalidateRulesCache();
-
-    await db.transaction('rw', db.tables, async () => {
-      if (Array.isArray(data.accounts)) await db.accounts.bulkPut(data.accounts);
-      if (Array.isArray(data.categoryGroups)) await db.categoryGroups.bulkPut(data.categoryGroups);
-      if (Array.isArray(data.categories)) await db.categories.bulkPut(data.categories);
-      if (Array.isArray(data.transactions)) await db.transactions.bulkPut(data.transactions);
-      if (Array.isArray(data.budgets)) await db.budgets.bulkPut(data.budgets);
-      if (Array.isArray(data.goals)) await db.goals.bulkPut(data.goals);
-      if (Array.isArray(data.recurring)) await db.recurring.bulkPut(data.recurring);
-      if (Array.isArray(data.rules)) await db.rules.bulkPut(data.rules);
-      if (Array.isArray(data.subscriptions)) await db.subscriptions.bulkPut(data.subscriptions);
-      if (Array.isArray(data.loans)) await db.loans.bulkPut(data.loans);
-      if (Array.isArray(data.balances)) await db.balances.bulkPut(data.balances);
-    });
-    invalidateRulesCache();
-  } catch (e) {
-    console.error('Backup inválido', e);
-    const msg = e instanceof Error ? e.message : 'Archivo inválido o corrupto.';
-    window.alert(`No se pudo restaurar el backup: ${msg}`);
   }
+
+  const value = phase === 'old' ? oldPin : phase === 'new' ? newPin : confirmPin;
+  const setValue = phase === 'old' ? setOldPin : phase === 'new' ? setNewPin : setConfirmPin;
+  const canSubmit =
+    (phase === 'old' && oldPin.length >= 4) ||
+    (phase === 'new' && newPin.length >= 4) ||
+    (phase === 'confirm' && confirmPin.length >= 4);
+
+  return (
+    <Sheet
+      open={open}
+      onClose={() => {
+        reset();
+        onClose();
+      }}
+      title="Cambiar PIN"
+    >
+      {phase === 'done' ? (
+        <div className="space-y-3 font-mono text-center">
+          <p className="text-mono11 text-accent">PIN actualizado</p>
+          <Btn
+            variant="solid"
+            block
+            onClick={() => {
+              reset();
+              onClose();
+            }}
+          >
+            OK
+          </Btn>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="font-mono text-mono10 text-dim text-center">
+            {phase === 'old' && 'Introduce tu PIN actual'}
+            {phase === 'new' && 'Nuevo PIN (≥4 dígitos)'}
+            {phase === 'confirm' && 'Confirma el nuevo PIN'}
+          </p>
+          <PinPad value={value} onChange={setValue} />
+          {error && <p className="font-mono text-mono10 text-danger text-center">{error}</p>}
+          <Btn
+            variant="solid"
+            block
+            onClick={() => void submit()}
+            disabled={!canSubmit}
+            data-testid="change-pin-next"
+          >
+            {phase === 'confirm' ? 'GUARDAR' : 'SIGUIENTE'}
+          </Btn>
+        </div>
+      )}
+    </Sheet>
+  );
 }
