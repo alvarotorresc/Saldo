@@ -44,21 +44,35 @@ vi.mock('dexie-react-hooks', () => ({
   },
 }));
 
-vi.mock('@/db/database', () => ({
-  db: {
-    meta: { get: vi.fn(async () => undefined), put: vi.fn(async () => undefined) },
-    categories: {
-      toArray: () => [
-        { id: 1, name: 'Supermercado', color: '#10B981', kind: 'expense', groupId: 1 },
-      ],
+vi.mock('@/db/database', () => {
+  const emptyChain = {
+    where: () => emptyChain,
+    equals: () => emptyChain,
+    anyOf: () => emptyChain,
+    between: () => emptyChain,
+    filter: () => emptyChain,
+    orderBy: () => emptyChain,
+    toArray: () => [],
+    first: () => undefined,
+  };
+  return {
+    db: {
+      meta: { get: vi.fn(async () => undefined), put: vi.fn(async () => undefined) },
+      categories: {
+        toArray: () => [
+          { id: 1, name: 'Supermercado', color: '#10B981', kind: 'expense', groupId: 1 },
+        ],
+      },
+      categoryGroups: {
+        toArray: () => [
+          { id: 1, name: 'Comida', color: '#F59E0B', icon: 'utensils', kind: 'expense', order: 1 },
+        ],
+      },
+      budgets: emptyChain,
+      accounts: emptyChain,
     },
-    categoryGroups: {
-      toArray: () => [
-        { id: 1, name: 'Comida', color: '#F59E0B', icon: 'utensils', kind: 'expense', order: 1 },
-      ],
-    },
-  },
-}));
+  };
+});
 
 vi.mock('@/db/queries', async () => {
   const actual = await vi.importActual<typeof import('@/db/queries')>('@/db/queries');
@@ -70,7 +84,15 @@ vi.mock('@/db/queries', async () => {
         : { income: 1000, expense: 200, net: 800 },
     txByMonth: () => mockTx,
     dailySpend: () => new Array(30).fill(0).map((_, i) => (i === 9 ? 20 : 0)),
+    dailySpendSeries: () => new Array(30).fill(0),
     expensesByGroup: () => new Map<number | 'none', number>([[1, 20]]),
+    expensesByCategory: () => new Map<number | 'none', number>([[1, 20]]),
+    monthlyInOut: () =>
+      Array.from({ length: 12 }, (_, i) => ({
+        month: `2025-${String(i + 1).padStart(2, '0')}`,
+        income: 1000,
+        expense: 500,
+      })),
   };
 });
 
@@ -106,7 +128,7 @@ describe('DashboardPage (Sobrio)', () => {
     const chartsBtn = screen.getAllByRole('button', { name: /CHARTS/ })[0];
     fireEvent.click(chartsBtn);
     expect(useMeta.getState().dashboardMode).toBe('charts');
-    expect(screen.getByText(/PENDING_F4/)).toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-charts')).toBeInTheDocument();
   });
 
   it('hydrates useMeta on mount when store is not yet hydrated', () => {

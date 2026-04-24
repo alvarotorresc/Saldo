@@ -1,8 +1,8 @@
 /**
- * DashboardPage — Dashboard "Sobrio" for Saldo v0.2 (F3).
- * Visual direction: Terminal / Technical.
- * The Charts render mode (F4) is not implemented yet; the CHARTS|SOBRIO toggle
- * still persists the user choice so rehydration works across lock/unlock.
+ * DashboardPage — wrapper that renders either the "Sobrio" (F3) or the
+ * "Charts" (F4) render mode of the Saldo v0.2 Dashboard. Visual direction:
+ * Terminal / Technical. Shared shell (TopBar, toggle, month switcher) lives
+ * here; each mode owns its own content component.
  */
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useMemo, useState } from 'react';
@@ -14,6 +14,7 @@ import { TopBarV2 } from '@/ui/TopBarV2';
 import { Icon } from '@/ui/Icon';
 import { Badge } from '@/ui/primitives';
 import { Spark, StackBar } from '@/ui/charts';
+import { DashboardCharts } from './DashboardCharts';
 import { useApp } from '@/stores/app';
 import { useMeta, type DashboardMode } from '@/stores/meta';
 import type { Category, CategoryGroup, Transaction } from '@/types';
@@ -159,189 +160,257 @@ export function DashboardPage({
             </button>
           </div>
           <span className="font-mono text-mono9 text-dim tracking-widest uppercase">
-            {mode === 'charts' ? 'MODE=CHARTS · PENDING_F4' : 'MODE=SOBRIO'}
+            MODE={mode.toUpperCase()}
           </span>
         </div>
 
-        {/* HERO */}
-        <section className="px-3.5 py-[18px] border-b border-border">
-          <div className="flex justify-between font-mono text-mono9 text-muted tracking-widest mb-2.5">
-            <span>NET_BALANCE · {month}</span>
-            <span>{month}</span>
-          </div>
-          <div
-            className="font-mono text-[40px] leading-none tracking-tight tabular"
-            style={{ color: net >= 0 ? 'var(--color-accent)' : 'var(--color-danger)' }}
-            data-testid="hero-net"
-          >
-            {net >= 0 ? '+' : '−'}
-            {formatMoneyCompact(Math.abs(tweenedNet))}
-          </div>
+        {mode === 'charts' ? (
+          <DashboardCharts />
+        ) : (
+          <DashboardSobrio
+            month={month}
+            income={income}
+            expense={expense}
+            net={net}
+            deltaNet={deltaNet}
+            savingsRate={savingsRate}
+            txCount={txCount}
+            tweenedNet={tweenedNet}
+            sparkData={sparkData}
+            topGroups={topGroups}
+            groupById={groupById}
+            recentTx={recentTx}
+            catById={catById}
+            onGoImport={onGoImport}
+            onGoTransactions={onGoTransactions}
+            onGoSubscriptions={onGoSubscriptions}
+            onGoCharts={onGoCharts}
+          />
+        )}
+      </div>
+    </>
+  );
+}
 
-          <div className="mt-3 grid grid-cols-3 gap-2.5 font-mono text-[11px]">
-            <HeroMetric label="SAVE_RATE" value={`${savingsRate.toFixed(1)}`} unit="%" />
-            <HeroMetric
-              label="Δ PREV"
-              value={`${deltaNet >= 0 ? '+' : '−'}${formatMoneyCompact(Math.abs(deltaNet))}`}
-              valueClassName={deltaNet >= 0 ? 'text-accent' : 'text-danger'}
-            />
-            <HeroMetric label="TX" value={String(txCount)} />
-          </div>
+interface DashboardSobrioProps {
+  month: string;
+  income: number;
+  expense: number;
+  net: number;
+  deltaNet: number;
+  savingsRate: number;
+  txCount: number;
+  tweenedNet: number;
+  sparkData: number[];
+  topGroups: { id: number; amount: number; count: number }[];
+  groupById: Map<number, CategoryGroup>;
+  recentTx: Transaction[];
+  catById: Map<number, Category>;
+  onGoImport: () => void;
+  onGoTransactions: () => void;
+  onGoSubscriptions: () => void;
+  onGoCharts: () => void;
+}
 
-          <div className="mt-3.5 flex items-center gap-2.5">
-            <span className="font-mono text-mono9 text-dim tracking-widest">30D</span>
-            <div className="flex-1 text-accent">
-              <Spark
-                data={sparkData}
-                w={240}
-                h={26}
-                color="var(--color-accent)"
-                fill="rgba(143,192,136,.08)"
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* IN / OUT row */}
-        <div className="grid grid-cols-2 border-b border-border">
-          <div className="px-3.5 py-3 border-r border-border">
-            <div className="font-mono text-mono9 text-dim tracking-widest uppercase">INCOME</div>
-            <div className="font-mono text-sans14 text-text mt-1 tabular">
-              <span className="text-accent">+</span>
-              {formatMoney(income)}
-            </div>
-          </div>
-          <div className="px-3.5 py-3">
-            <div className="font-mono text-mono9 text-dim tracking-widest uppercase">EXPENSE</div>
-            <div className="font-mono text-sans14 text-text mt-1 tabular">
-              <span className="text-danger">−</span>
-              {formatMoney(expense)}
-            </div>
-          </div>
+function DashboardSobrio({
+  month,
+  income,
+  expense,
+  net,
+  deltaNet,
+  savingsRate,
+  txCount,
+  tweenedNet,
+  sparkData,
+  topGroups,
+  groupById,
+  recentTx,
+  catById,
+  onGoImport,
+  onGoTransactions,
+  onGoSubscriptions,
+  onGoCharts,
+}: DashboardSobrioProps) {
+  return (
+    <>
+      {/* HERO */}
+      <section className="px-3.5 py-[18px] border-b border-border">
+        <div className="flex justify-between font-mono text-mono9 text-muted tracking-widest mb-2.5">
+          <span>NET_BALANCE · {month}</span>
+          <span>{month}</span>
+        </div>
+        <div
+          className="font-mono text-[40px] leading-none tracking-tight tabular"
+          style={{ color: net >= 0 ? 'var(--color-accent)' : 'var(--color-danger)' }}
+          data-testid="hero-net"
+        >
+          {net >= 0 ? '+' : '−'}
+          {formatMoneyCompact(Math.abs(tweenedNet))}
         </div>
 
-        {/* StackBar IN vs OUT */}
-        {(income > 0 || expense > 0) && (
-          <div className="px-3.5 py-3 border-b border-border">
-            <div className="flex justify-between font-mono text-mono9 text-dim tracking-widest uppercase mb-1.5">
-              <span>IN_OUT_SPLIT</span>
-              <span>
-                IN {income + expense > 0 ? Math.round((income / (income + expense)) * 100) : 0}%
-              </span>
-            </div>
-            <StackBar
-              h={6}
-              data={[
-                { color: 'var(--color-accent)', value: income },
-                { color: 'var(--color-danger)', value: expense },
-              ]}
+        <div className="mt-3 grid grid-cols-3 gap-2.5 font-mono text-[11px]">
+          <HeroMetric label="SAVE_RATE" value={`${savingsRate.toFixed(1)}`} unit="%" />
+          <HeroMetric
+            label="Δ PREV"
+            value={`${deltaNet >= 0 ? '+' : '−'}${formatMoneyCompact(Math.abs(deltaNet))}`}
+            valueClassName={deltaNet >= 0 ? 'text-accent' : 'text-danger'}
+          />
+          <HeroMetric label="TX" value={String(txCount)} />
+        </div>
+
+        <div className="mt-3.5 flex items-center gap-2.5">
+          <span className="font-mono text-mono9 text-dim tracking-widest">30D</span>
+          <div className="flex-1 text-accent">
+            <Spark
+              data={sparkData}
+              w={240}
+              h={26}
+              color="var(--color-accent)"
+              fill="rgba(143,192,136,.08)"
             />
           </div>
-        )}
+        </div>
+      </section>
 
-        {/* Category breakdown */}
-        {topGroups.length > 0 && (
-          <section className="px-3.5 pt-3.5 pb-2.5 border-b border-border">
-            <header className="flex justify-between items-baseline mb-2.5">
-              <h2 className="font-mono text-mono10 text-muted uppercase tracking-widest">
-                CATEGORY_BREAKDOWN
-              </h2>
-              <button
-                type="button"
-                onClick={onGoCharts}
-                className="font-mono text-mono9 text-dim tracking-widest uppercase press"
-              >
-                DETAIL →
-              </button>
-            </header>
-            <ul className="space-y-2">
-              {topGroups.map((g) => {
-                const grp = groupById.get(g.id);
-                if (!grp) return null;
-                const pct = expense > 0 ? (g.amount / expense) * 100 : 0;
-                return (
-                  <li key={g.id}>
-                    <div className="flex justify-between font-mono text-[11px] mb-1">
-                      <span className="text-text truncate">
-                        <span className="mr-1.5" style={{ color: grp.color }}>
-                          ■
-                        </span>
-                        {grp.name.toUpperCase()}
-                        <span className="text-dim ml-2">n={g.count}</span>
-                      </span>
-                      <span className="text-text tabular shrink-0">
-                        {formatMoney(g.amount)} <span className="text-dim">{pct.toFixed(1)}%</span>
-                      </span>
-                    </div>
-                    <div className="h-[2px] bg-surface overflow-hidden">
-                      <div
-                        className="h-full"
-                        style={{ width: `${pct}%`, background: grp.color, opacity: 0.75 }}
-                      />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-
-        {/* Recent tx */}
-        {recentTx.length > 0 && (
-          <section className="px-3.5 pt-3.5 pb-4 border-b border-border">
-            <header className="flex justify-between items-baseline mb-2">
-              <h2 className="font-mono text-mono10 text-muted uppercase tracking-widest">
-                RECENT_TX
-              </h2>
-              <button
-                type="button"
-                onClick={onGoTransactions}
-                className="font-mono text-mono9 text-dim tracking-widest uppercase press"
-              >
-                LEDGER →
-              </button>
-            </header>
-            <ul className="font-mono text-[11px]">
-              {recentTx.map((t) => {
-                const cat = t.categoryId ? catById.get(t.categoryId) : undefined;
-                const isIncome = t.kind === 'income';
-                const amt = isIncome ? t.amount : effectiveAmount(t);
-                return (
-                  <li
-                    key={t.id}
-                    className="grid grid-cols-[48px_1fr_auto] gap-2.5 py-1.5 border-b border-border last:border-b-0"
-                  >
-                    <span className="text-dim">{t.date.slice(5)}</span>
-                    <span className="text-text truncate">
-                      {t.merchant ?? t.description}
-                      {cat && <span className="text-dim ml-1.5">· {cat.name}</span>}
-                    </span>
-                    <span
-                      className={`${isIncome ? 'text-accent' : 'text-text'} tabular whitespace-nowrap`}
-                    >
-                      {isIncome ? '+' : '−'}
-                      {formatMoney(amt)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-
-        {/* Quick actions */}
-        <section className="px-3.5 pt-3.5 pb-4">
-          <h2 className="font-mono text-mono10 text-muted uppercase tracking-widest mb-2.5">
-            QUICK_ACTIONS
-          </h2>
-          <div className="grid grid-cols-2 gap-2">
-            <QuickActionChip icon="import" label="IMPORT" onClick={onGoImport} />
-            <QuickActionChip icon="plus" label="NEW_TX" onClick={onGoTransactions} />
-            <QuickActionChip icon="repeat" label="SUBS" onClick={onGoSubscriptions} />
-            <QuickActionChip icon="chart" label="CHARTS" onClick={onGoCharts} />
+      {/* IN / OUT row */}
+      <div className="grid grid-cols-2 border-b border-border">
+        <div className="px-3.5 py-3 border-r border-border">
+          <div className="font-mono text-mono9 text-dim tracking-widest uppercase">INCOME</div>
+          <div className="font-mono text-sans14 text-text mt-1 tabular">
+            <span className="text-accent">+</span>
+            {formatMoney(income)}
           </div>
-        </section>
+        </div>
+        <div className="px-3.5 py-3">
+          <div className="font-mono text-mono9 text-dim tracking-widest uppercase">EXPENSE</div>
+          <div className="font-mono text-sans14 text-text mt-1 tabular">
+            <span className="text-danger">−</span>
+            {formatMoney(expense)}
+          </div>
+        </div>
       </div>
+
+      {/* StackBar IN vs OUT */}
+      {(income > 0 || expense > 0) && (
+        <div className="px-3.5 py-3 border-b border-border">
+          <div className="flex justify-between font-mono text-mono9 text-dim tracking-widest uppercase mb-1.5">
+            <span>IN_OUT_SPLIT</span>
+            <span>
+              IN {income + expense > 0 ? Math.round((income / (income + expense)) * 100) : 0}%
+            </span>
+          </div>
+          <StackBar
+            h={6}
+            data={[
+              { color: 'var(--color-accent)', value: income },
+              { color: 'var(--color-danger)', value: expense },
+            ]}
+          />
+        </div>
+      )}
+
+      {/* Category breakdown */}
+      {topGroups.length > 0 && (
+        <section className="px-3.5 pt-3.5 pb-2.5 border-b border-border">
+          <header className="flex justify-between items-baseline mb-2.5">
+            <h2 className="font-mono text-mono10 text-muted uppercase tracking-widest">
+              CATEGORY_BREAKDOWN
+            </h2>
+            <button
+              type="button"
+              onClick={onGoCharts}
+              className="font-mono text-mono9 text-dim tracking-widest uppercase press"
+            >
+              DETAIL →
+            </button>
+          </header>
+          <ul className="space-y-2">
+            {topGroups.map((g) => {
+              const grp = groupById.get(g.id);
+              if (!grp) return null;
+              const pct = expense > 0 ? (g.amount / expense) * 100 : 0;
+              return (
+                <li key={g.id}>
+                  <div className="flex justify-between font-mono text-[11px] mb-1">
+                    <span className="text-text truncate">
+                      <span className="mr-1.5" style={{ color: grp.color }}>
+                        ■
+                      </span>
+                      {grp.name.toUpperCase()}
+                      <span className="text-dim ml-2">n={g.count}</span>
+                    </span>
+                    <span className="text-text tabular shrink-0">
+                      {formatMoney(g.amount)} <span className="text-dim">{pct.toFixed(1)}%</span>
+                    </span>
+                  </div>
+                  <div className="h-[2px] bg-surface overflow-hidden">
+                    <div
+                      className="h-full"
+                      style={{ width: `${pct}%`, background: grp.color, opacity: 0.75 }}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* Recent tx */}
+      {recentTx.length > 0 && (
+        <section className="px-3.5 pt-3.5 pb-4 border-b border-border">
+          <header className="flex justify-between items-baseline mb-2">
+            <h2 className="font-mono text-mono10 text-muted uppercase tracking-widest">
+              RECENT_TX
+            </h2>
+            <button
+              type="button"
+              onClick={onGoTransactions}
+              className="font-mono text-mono9 text-dim tracking-widest uppercase press"
+            >
+              LEDGER →
+            </button>
+          </header>
+          <ul className="font-mono text-[11px]">
+            {recentTx.map((t) => {
+              const cat = t.categoryId ? catById.get(t.categoryId) : undefined;
+              const isIncome = t.kind === 'income';
+              const amt = isIncome ? t.amount : effectiveAmount(t);
+              return (
+                <li
+                  key={t.id}
+                  className="grid grid-cols-[48px_1fr_auto] gap-2.5 py-1.5 border-b border-border last:border-b-0"
+                >
+                  <span className="text-dim">{t.date.slice(5)}</span>
+                  <span className="text-text truncate">
+                    {t.merchant ?? t.description}
+                    {cat && <span className="text-dim ml-1.5">· {cat.name}</span>}
+                  </span>
+                  <span
+                    className={`${isIncome ? 'text-accent' : 'text-text'} tabular whitespace-nowrap`}
+                  >
+                    {isIncome ? '+' : '−'}
+                    {formatMoney(amt)}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* Quick actions */}
+      <section className="px-3.5 pt-3.5 pb-4">
+        <h2 className="font-mono text-mono10 text-muted uppercase tracking-widest mb-2.5">
+          QUICK_ACTIONS
+        </h2>
+        <div className="grid grid-cols-2 gap-2">
+          <QuickActionChip icon="import" label="IMPORT" onClick={onGoImport} />
+          <QuickActionChip icon="plus" label="NEW_TX" onClick={onGoTransactions} />
+          <QuickActionChip icon="repeat" label="SUBS" onClick={onGoSubscriptions} />
+          <QuickActionChip icon="chart" label="CHARTS" onClick={onGoCharts} />
+        </div>
+      </section>
     </>
   );
 }
