@@ -15,6 +15,7 @@ import type { Subscription, SubscriptionCadence } from '@/types';
 
 interface Props {
   onBack: () => void;
+  autoOpenNew?: boolean;
 }
 
 const PALETTE = [
@@ -29,10 +30,14 @@ const PALETTE = [
 ];
 const CADENCES: SubscriptionCadence[] = ['weekly', 'biweekly', 'monthly', 'quarterly', 'yearly'];
 
-export function SubscriptionsPage({ onBack }: Props) {
+export function SubscriptionsPage({ onBack, autoOpenNew = false }: Props) {
   const subs = useLiveQuery(() => db.subscriptions.where('active').equals(1).toArray(), []);
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(autoOpenNew);
   const [editing, setEditing] = useState<Subscription | null>(null);
+
+  useEffect(() => {
+    if (autoOpenNew) setAddOpen(true);
+  }, [autoOpenNew]);
 
   const { monthly, yearly, upcoming, annuals } = useMemo(() => {
     let m = 0;

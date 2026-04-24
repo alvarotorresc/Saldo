@@ -17,14 +17,19 @@ import type { Goal } from '@/types';
 
 interface Props {
   onBack: () => void;
+  autoOpenNew?: boolean;
 }
 
 const PALETTE = ['#10B981', '#60A5FA', '#A78BFA', '#F472B6', '#F59E0B', '#FB7185', '#34D399'];
 
-export function GoalsPage({ onBack }: Props) {
+export function GoalsPage({ onBack, autoOpenNew = false }: Props) {
   const goals = useLiveQuery(() => db.goals.toArray(), []);
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(autoOpenNew);
   const [editing, setEditing] = useState<Goal | null>(null);
+
+  useEffect(() => {
+    if (autoOpenNew) setAddOpen(true);
+  }, [autoOpenNew]);
 
   const { totalSaved, totalTarget } = useMemo(() => {
     let s = 0;

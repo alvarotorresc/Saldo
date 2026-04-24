@@ -92,6 +92,9 @@ export default function App() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [quickNewFor, setQuickNewFor] = useState<
+    'goals' | 'subscriptions' | 'loans' | 'rules' | null
+  >(null);
 
   function openNewTx(kind: 'expense' | 'income' | 'transfer' = 'expense') {
     setNewTxKind(kind);
@@ -146,11 +149,15 @@ export default function App() {
 
   function openMore(section: MoreSection) {
     setMoreSection(section);
+    setQuickNewFor(null);
   }
 
   function handleTab(t: Tab) {
     setTab(t);
-    if (t !== 'more') setMoreSection(null);
+    if (t !== 'more') {
+      setMoreSection(null);
+      setQuickNewFor(null);
+    }
   }
 
   const commands: Command[] = [
@@ -285,11 +292,20 @@ export default function App() {
                   (moreSection == null ? (
                     <MorePage onOpen={openMore} />
                   ) : moreSection === 'goals' ? (
-                    <GoalsPage onBack={() => setMoreSection(null)} />
+                    <GoalsPage
+                      onBack={() => setMoreSection(null)}
+                      autoOpenNew={quickNewFor === 'goals'}
+                    />
                   ) : moreSection === 'subscriptions' ? (
-                    <SubscriptionsPage onBack={() => setMoreSection(null)} />
+                    <SubscriptionsPage
+                      onBack={() => setMoreSection(null)}
+                      autoOpenNew={quickNewFor === 'subscriptions'}
+                    />
                   ) : moreSection === 'loans' ? (
-                    <LoansPage onBack={() => setMoreSection(null)} />
+                    <LoansPage
+                      onBack={() => setMoreSection(null)}
+                      autoOpenNew={quickNewFor === 'loans'}
+                    />
                   ) : moreSection === 'wealth' ? (
                     <NetWorthPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'categories' ? (
@@ -297,7 +313,10 @@ export default function App() {
                   ) : moreSection === 'budgets' ? (
                     <BudgetsPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'rules' ? (
-                    <RulesPage onBack={() => setMoreSection(null)} />
+                    <RulesPage
+                      onBack={() => setMoreSection(null)}
+                      autoOpenNew={quickNewFor === 'rules'}
+                    />
                   ) : moreSection === 'analytics' ? (
                     <AnalyticsPage onBack={() => setMoreSection(null)} />
                   ) : moreSection === 'export' ? (
@@ -331,18 +350,22 @@ export default function App() {
         onNewGoal={() => {
           setTab('more');
           setMoreSection('goals');
+          setQuickNewFor('goals');
         }}
         onNewSubscription={() => {
           setTab('more');
           setMoreSection('subscriptions');
+          setQuickNewFor('subscriptions');
         }}
         onNewLoan={() => {
           setTab('more');
           setMoreSection('loans');
+          setQuickNewFor('loans');
         }}
         onNewRule={() => {
           setTab('more');
           setMoreSection('rules');
+          setQuickNewFor('rules');
         }}
       />
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} commands={commands} />

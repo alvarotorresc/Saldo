@@ -46,10 +46,12 @@ Estado al cierre de F14 (release polish) antes del tag `v0.2.0`.
 
 ## Tests / build
 
-- **Tests: 303 verdes** en 38 files tras la purga de legacy UI.
+- **Tests: 373 verdes** en 42 files (303 pre-review + 70 nuevos en F15 reviews).
 - **Typecheck limpio** (tsc --noEmit).
-- **Build OK** (Vite 6, bundle ~140KB gzip con jspdf lazy chunking pendiente).
-- **Coverage ≥85%** en los módulos nuevos (F3→F13).
+- **Build OK** (Vite 6, bundle principal 136.87 KB gzip; jspdf + html2canvas en
+  chunk lazy `pdfExport-*.js` 128.94 KB, carga solo al exportar PDF).
+- **Coverage ≥85%** en los módulos nuevos (F3→F13) y en `lock.ts`, `atRest.ts`,
+  `rules.ts` tras la Fase 1 de testing-review.
 
 ## Responsabilidad del usuario antes del tag
 

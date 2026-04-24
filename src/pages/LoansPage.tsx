@@ -16,6 +16,7 @@ import type { Loan } from '@/types';
 
 interface Props {
   onBack: () => void;
+  autoOpenNew?: boolean;
 }
 
 const PALETTE = ['#F87171', '#FB7185', '#F59E0B', '#FBBF24', '#A78BFA', '#60A5FA'];
@@ -29,10 +30,14 @@ interface LoanStats {
   nextPay: string;
 }
 
-export function LoansPage({ onBack }: Props) {
+export function LoansPage({ onBack, autoOpenNew = false }: Props) {
   const loans = useLiveQuery(() => db.loans.toArray(), []);
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(autoOpenNew);
   const [editing, setEditing] = useState<Loan | null>(null);
+
+  useEffect(() => {
+    if (autoOpenNew) setAddOpen(true);
+  }, [autoOpenNew]);
 
   const stats = useMemo<LoanStats[]>(() => {
     return (loans ?? []).map((l) => {

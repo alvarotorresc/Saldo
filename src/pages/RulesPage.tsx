@@ -14,9 +14,10 @@ import type { Rule } from '@/types';
 
 interface Props {
   onBack: () => void;
+  autoOpenNew?: boolean;
 }
 
-export function RulesPage({ onBack }: Props) {
+export function RulesPage({ onBack, autoOpenNew = false }: Props) {
   const rules = useLiveQuery(() =>
     db.rules
       .toArray()
@@ -30,8 +31,12 @@ export function RulesPage({ onBack }: Props) {
     return m;
   }, [categories]);
 
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(autoOpenNew);
   const [editing, setEditing] = useState<Rule | null>(null);
+
+  useEffect(() => {
+    if (autoOpenNew) setAddOpen(true);
+  }, [autoOpenNew]);
 
   const totalHitsThisMonth = useMemo(() => {
     if (!rules) return 0;
