@@ -10,6 +10,7 @@ import { db } from '@/db/database';
 import { categorize, invalidateRulesCache } from '@/lib/categorize';
 import { parseStatement, toTransaction, type ImportResult, type ParsedRow } from '@/lib/importers';
 import { importConfidence } from '@/lib/importConfidence';
+import { txFingerprint } from '@/lib/txHash';
 import { formatMoney } from '@/lib/format';
 import { TopBarV2 } from '@/ui/TopBarV2';
 import { Icon } from '@/ui/Icon';
@@ -34,6 +35,7 @@ export function ImportPage() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
   const [imported, setImported] = useState<number>(0);
+  const [tombstoneSkipped, setTombstoneSkipped] = useState<number>(0);
 
   const catById = useMemo(() => {
     const m = new Map<number, Category>();
@@ -82,7 +84,14 @@ export function ImportPage() {
     setPhase('importing');
     try {
       const accountId = accounts[0].id;
+      // Honor tombstones so that a transaction the user explicitly deleted
+      // does not resurrect when the same CSV is re-imported. Without this
+      // guard the delete button in TxDetailPage is a lie: the tx comes back
+      // on the next import cycle (D-10 from testing review).
+      const tombstones = await db.txTombstones.toArray();
+      const tombstonedHashes = new Set(tombstones.map((t) => t.txHash));
       let added = 0;
+      let tombstoneSkipped = 0;
       await db.transaction('rw', db.transactions, async () => {
         for (const p of preview) {
           const payload = toTransaction(accountId, result.bank, p.row);
@@ -94,11 +103,17 @@ export function ImportPage() {
                 .first()
             : undefined;
           if (exists) continue;
+          const fingerprint = await txFingerprint(payload);
+          if (tombstonedHashes.has(fingerprint)) {
+            tombstoneSkipped++;
+            continue;
+          }
           await db.transactions.add(payload);
           added++;
         }
       });
       setImported(added);
+      setTombstoneSkipped(tombstoneSkipped);
       setPhase('done');
       invalidateRulesCache();
     } catch (e) {
@@ -240,7 +255,9 @@ export function ImportPage() {
             {phase === 'done' && (
               <div className="px-3.5 py-4">
                 <div className="font-mono text-mono11 text-accent">
-                  ✓ {imported} tx importadas ({preview.length - imported} duplicadas omitidas)
+                  ✓ {imported} tx importadas ({preview.length - imported - tombstoneSkipped}{' '}
+                  duplicadas omitidas
+                  {tombstoneSkipped > 0 ? ` · ${tombstoneSkipped} previamente borradas` : ''})
                 </div>
                 <Btn
                   variant="outline"
@@ -251,6 +268,7 @@ export function ImportPage() {
                     setPhase('idle');
                     setFilename('');
                     setImported(0);
+                    setTombstoneSkipped(0);
                   }}
                   className="mt-2"
                 >

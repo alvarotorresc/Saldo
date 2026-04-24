@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canonicalTxJson, txHash } from './txHash';
+import { canonicalTxJson, txFingerprint, txHash } from './txHash';
 import type { Transaction } from '@/types';
 
 const base: Transaction = {
@@ -38,5 +38,29 @@ describe('txHash', () => {
     expect(await txHash({ ...base, createdAt: 0 })).toBe(h0);
     expect(await txHash({ ...base, tags: ['foo'] })).toBe(h0);
     expect(await txHash({ ...base, notes: 'changed' })).toBe(h0);
+  });
+});
+
+describe('txFingerprint', () => {
+  it('stays stable when categoryId changes between delete and re-import', async () => {
+    const f0 = await txFingerprint(base);
+    expect(await txFingerprint({ ...base, categoryId: 99 })).toBe(f0);
+    expect(await txFingerprint({ ...base, categoryId: undefined })).toBe(f0);
+  });
+
+  it('stays stable when personalAmount changes', async () => {
+    const f0 = await txFingerprint(base);
+    expect(await txFingerprint({ ...base, personalAmount: 5 })).toBe(f0);
+  });
+
+  it('differs from txHash (fingerprint is narrower)', async () => {
+    expect(await txFingerprint(base)).not.toBe(await txHash(base));
+  });
+
+  it('changes when an origin-stable field changes (description, merchant, amount)', async () => {
+    const f0 = await txFingerprint(base);
+    expect(await txFingerprint({ ...base, description: 'otro' })).not.toBe(f0);
+    expect(await txFingerprint({ ...base, merchant: 'Mercadona' })).not.toBe(f0);
+    expect(await txFingerprint({ ...base, amount: 43 })).not.toBe(f0);
   });
 });

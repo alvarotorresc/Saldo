@@ -43,3 +43,35 @@ export async function txHash(tx: Transaction): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', data);
   return toHex(digest);
 }
+
+/**
+ * Fingerprint SIN categoría ni personalAmount, usado para tombstones y
+ * deduplicación import-vs-deleted. Ambos campos pueden variar entre una
+ * eliminación y una re-importación del mismo CSV: el usuario puede haber
+ * re-categorizado la tx antes de borrarla, o el categorizer heurístico puede
+ * predecir otra categoría la segunda vez. El fingerprint ignora esos campos
+ * para que el match contra tombstones dependa sólo del origen estable.
+ */
+const FINGERPRINT_FIELDS: (keyof Transaction)[] = [
+  'accountId',
+  'date',
+  'amount',
+  'kind',
+  'description',
+  'merchant',
+  'reimbursementFor',
+];
+
+export async function txFingerprint(tx: Transaction): Promise<string> {
+  const picked: Record<string, unknown> = {};
+  for (const k of FINGERPRINT_FIELDS) {
+    const v = tx[k];
+    if (v !== undefined) picked[k as string] = v;
+  }
+  const keys = Object.keys(picked).sort();
+  const sorted: Record<string, unknown> = {};
+  for (const k of keys) sorted[k] = picked[k];
+  const data = new TextEncoder().encode(JSON.stringify(sorted));
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return toHex(digest);
+}

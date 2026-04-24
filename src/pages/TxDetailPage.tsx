@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { db } from '@/db/database';
 import { effectiveAmount } from '@/db/queries';
 import { formatMoney } from '@/lib/format';
-import { txHash } from '@/lib/txHash';
+import { txFingerprint, txHash } from '@/lib/txHash';
 import { TopBarV2 } from '@/ui/TopBarV2';
 import { Icon } from '@/ui/Icon';
 import { Btn, KV, Section } from '@/ui/primitives';
@@ -108,7 +108,9 @@ export function TxDetailPage({ txId, onBack, onDeleted }: Props) {
   async function remove() {
     if (!tx?.id) return;
     if (typeof window !== 'undefined' && !window.confirm('¿Borrar este movimiento?')) return;
-    const fingerprint = await txHash(tx);
+    // Use fingerprint (without categoryId/personalAmount) so a later
+    // re-import categorizing the same tx differently still hits the tombstone.
+    const fingerprint = await txFingerprint(tx);
     await db.transaction('rw', db.transactions, db.txTombstones, async () => {
       await db.txTombstones
         .put({ txHash: fingerprint, deletedAt: Date.now() })
